@@ -1,7 +1,6 @@
 /*
  * Copyright 2012-2014, Luis Filipe da Cruz Nassif
- * 
- * This file is part of Indexador e Processador de Evidências Digitais (IPED).
+ * * This file is part of Indexador e Processador de Evidências Digitais (IPED).
  *
  * IPED is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -21,6 +20,7 @@ package iped.app.ui;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
+import java.util.ArrayList;
 import java.util.List;
 
 import javax.swing.JComponent;
@@ -28,8 +28,11 @@ import javax.swing.JMenu;
 import javax.swing.JMenuItem;
 import javax.swing.JPopupMenu;
 import javax.swing.JRadioButtonMenuItem;
+import javax.swing.JTable;
 import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
 
+import iped.app.ui.ai.AIContextManager;
 import iped.app.ui.themes.Theme;
 import iped.app.ui.themes.ThemeManager;
 import iped.data.IItem;
@@ -48,7 +51,7 @@ public class MenuClass extends JPopupMenu {
     JMenuItem exportHighlighted, copyHighlighted, checkHighlighted, uncheckHighlighted, readHighlighted, unreadHighlighted, exportChecked, copyChecked, saveBookmarks, loadBookmarks,
             checkHighlightedAndSubItems, uncheckHighlightedAndSubItems, checkHighlightedAndParent, uncheckHighlightedAndParent, checkHighlightedAndReferences, uncheckHighlightedAndReferences, checkHighlightedAndReferencedBy, uncheckHighlightedAndReferencedBy,
             changeGalleryColCount, defaultLayout, changeLayout, previewScreenshot, manageBookmarks, clearSearchHistory, importKeywords, navigateToParent, exportTerms, manageFilters, manageColumns, exportCheckedToZip, exportCheckedTreeToZip,
-            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
+            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, addToAIContext, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
             similarFacesCurrent, similarFacesExternal, toggleTimelineView, uiZoom, catIconSize, savePanelsLayout, loadPanelsLayout;
 
     MenuListener menuListener = new MenuListener(this);
@@ -330,6 +333,34 @@ public class MenuClass extends JPopupMenu {
         addToGraph.setEnabled(App.get().appGraphAnalytics.isEnabled() && item != null && item.getMetadata().get(ExtraProperties.COMMUNICATION_FROM) != null && item.getMetadata().get(ExtraProperties.COMMUNICATION_TO) != null);
         addToGraph.addActionListener(menuListener);
         this.add(addToGraph);
+        
+        // AI Context 
+        String aiContextText = "Add to AI Context";
+        try { aiContextText = Messages.getString("MenuClass.AddToAIContext"); } catch(Exception ignored) {}
+        
+        addToAIContext = new JMenuItem(aiContextText);
+        try {
+            addToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
+        } catch (Exception ignored) {}
+        
+        addToAIContext.setEnabled(item != null);
+        addToAIContext.addActionListener(e -> {
+            // Run on background thread to prevent UI freezing if many files are selected
+            new Thread(() -> {
+                List<IItem> itemsToAdd = getSelectedOrCheckedItems(item);
+                
+                if (!itemsToAdd.isEmpty()) {
+                    // Add all items in a single batch operation
+                    AIContextManager.getInstance().addContextFiles(itemsToAdd);
+                    
+                    // UI updates must happen on the Event Dispatch Thread
+                    SwingUtilities.invokeLater(() -> {
+                        AIAssistantPanel.getInstance().showPanel();
+                    });
+                }
+            }).start();
+        });
+        this.add(addToAIContext);
 
         this.addSeparator();
 
@@ -337,6 +368,50 @@ public class MenuClass extends JPopupMenu {
         createReport.addActionListener(menuListener);
         this.add(createReport);
 
+    } 
+
+    // Helper Methods moved outside the constructor
+    private List<IItem> getSelectedOrCheckedItems(IItem clickedItem) {
+        List<IItem> selectedItems = new ArrayList<>();
+        JTable table = App.get().getResultsTable();
+        
+        if (table != null && !isTreeMenu) {
+            // Check for "Checked" items 
+            int checkCol = table.convertColumnIndexToView(1); 
+            for (int i = 0; i < table.getRowCount(); i++) {
+                Boolean isChecked = (Boolean) table.getValueAt(i, checkCol);
+                if (Boolean.TRUE.equals(isChecked)) {
+                    selectedItems.add(resolveItemFromRow(table, i));
+                }
+            }
+            
+            // Fallback: Check for standard highlighted rows if nothing is checked
+            if (selectedItems.isEmpty()) {
+                int[] selectedRows = table.getSelectedRows();
+                if (selectedRows.length > 1) { // More than just the clicked row
+                    for (int row : selectedRows) {
+                        selectedItems.add(resolveItemFromRow(table, row));
+                    }
+                }
+            }
+        }
+        
+        // Fallback: Just use the single right-clicked item
+        if (selectedItems.isEmpty() && clickedItem != null) {
+            selectedItems.add(clickedItem);
+        }
+        
+        return selectedItems;
+    }
+
+    private IItem resolveItemFromRow(JTable table, int viewRow) {
+        // Converts the visual row index to the underlying model index,
+        // then fetches the item ID from IPED's search result model.
+        int modelIdx = table.convertRowIndexToModel(viewRow);
+        iped.data.IItemId itemId = App.get().getResults().getItem(modelIdx);
+    
+        // Fetch the actual IItem using IPED's appCase directly
+        return App.get().appCase.getItemByItemId(itemId); 
     }
 
     public void addExportTreeMenuItems(JComponent menu) {
