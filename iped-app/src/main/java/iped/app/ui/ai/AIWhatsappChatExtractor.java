@@ -19,24 +19,35 @@ public class AIWhatsappChatExtractor {
     /**
      * <p>
      * Basic validation to check if the item is an HTML file.
-     * The SARD backend will do the deep WhatsApp signature validation, 
-     * but we want to prevent sending obviously wrong files (like MP4s).
+     * Handles standard files and virtual files extracted from databases (which may lack extensions).
      * <p>
      * @param item The IPED evidence item to inspect.
-     * @return true if the file extension or MIME type indicates HTML content; false otherwise.
+     * @return true if the file indicates HTML or WhatsApp chat content; false otherwise.
      */
     public boolean isPotentiallyValidChat(IItem item) {
         if (item == null) return false;
         
-        // Check by file extension
+        // Check by explicit file extension
         String ext = item.getExt();
         if (ext != null && (ext.equalsIgnoreCase("html") || ext.equalsIgnoreCase("htm"))) {
             return true;
         }
         
-        // Fallback check by IPED's recognized Media Type
-        String mediaType = item.getMediaType() != null ? item.getMediaType().getType() : "";
-        return mediaType.contains("text/html");
+        // Check by IPED's Media Type (MIME type string, e.g., "text/html")
+        if (item.getMediaType() != null) {
+            String mimeType = item.getMediaType().getType().toLowerCase();
+            if (mimeType.contains("html")) {
+                return true;
+            }
+        }
+
+        // Check by Virtual Filename (Fallback for .db extractions)
+        String name = item.getName();
+        if (name != null && name.toLowerCase().startsWith("whatsapp chat")) {
+            return true;
+        }
+        
+        return false;
     }
 
     /**
