@@ -1,37 +1,194 @@
 package iped.app.ui.ai.backend;
 
+import com.google.gson.Gson;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.function.Consumer;
 
 /**
- * The concrete implementation of the {@link AIBackendService} that handles HTTP 
- * communication with the AI backend.
- * <p>
- * This class is responsible for taking the application's requests, formatting them 
- * into the appropriate network payloads, executing the HTTP calls using 
- * the provided {@link AIBackendConfig}, and parsing the responses back to the application.
- * </p>
+ * Concrete implementation of {@link AIBackendService} responsible for handling
+ * communication with the AI backend over HTTP.
+ *
+ * <p>This client supports two primary operations:</p>
+ * <ul>
+ *     <li><b>Chat initialization</b> via a synchronous HTTP POST request</li>
+ *     <li><b>Streaming responses</b> via Server-Sent Events (SSE)</li>
+ * </ul>
+ *
+ * <p>It uses Java's {@link HttpClient} for network communication and {@link Gson}
+ * for JSON serialization/deserialization.</p>
+ *
+ * <p><b>Thread safety:</b> This class is thread-safe provided that the supplied
+ * {@link AIBackendConfig} is immutable.</p>
  */
 public class AIBackendClient implements AIBackendService {
     
     private final AIBackendConfig config;
+    private final HttpClient httpClient;
+    private final Gson gson;
 
     /**
-     * Constructs a new AIBackendClient with the specified configuration.
-     * @param config The AI backend configuration (must not be null).
+     * Constructs a new {@code AIBackendClient}.
+     *
+     * @param config Backend configuration (must not be null).
+     * @throws IllegalArgumentException if config is null
      */
     public AIBackendClient(AIBackendConfig config) {
         this.config = config;
+        this.gson = new Gson();
+        // Create an HTTP client with a reasonable timeout
+        this.httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
     }
 
+    /**
+     * Initializes a new chat session with the backend.
+     *
+     * <p>This method sends the initial chat content (HTML formatted) to the backend,
+     * which responds with a chat identifier</p>
+     *
+     * @param chatHtml Initial chat content in HTML format
+     * @return The MD5 chat_hash returned by the server.
+     * @throws AIBackendException if:
+     * <ul>
+     *     <li>The HTTP request fails</li>
+     *     <li>The backend returns a non-200 status</li>
+     *     <li>The backend returns an application-level error</li>
+     *     <li>The response cannot be parsed</li>
+     * </ul>
+     */
     @Override
     public String initChat(String chatHtml) throws AIBackendException {
-        // TODO: Implement later (step 4)
-        throw new UnsupportedOperationException("Backend HTTP calls are not yet implemented.");
+        try {
+            // Construct the JSON payload {"chat_content": "..."}
+            JsonObject payload = new JsonObject();
+            payload.addProperty("chat_content", chatHtml);
+            String jsonBody = gson.toJson(payload);
+
+            // Build the POST request targeting the initialization endpoint
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(config.getBaseUrl() + "/api/init_chat"))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + config.getApiKey())
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            // Send synchronously
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            // Validate HTTP response
+            if (response.statusCode() != 200) {
+                throw new AIBackendException("Backend returned HTTP " + response.statusCode() + ": " + response.body());
+            }
+
+            // Parse the JSON response
+            JsonObject responseJson = JsonParser.parseString(response.body()).getAsJsonObject();
+            
+            // Check backend level error
+            if (responseJson.has("error")) {
+                throw new AIBackendException("Backend Error: " + responseJson.get("error").getAsString());
+            }
+
+            return responseJson.get("response").getAsString();
+
+        } catch (Exception e) {
+            throw new AIBackendException("Failed to initialize chat: " + e.getMessage(), e);
+        }
     }
 
+    /**
+     * Streams a chat response from the backend using Server-Sent Events (SSE).
+     *
+     * <p>This method sends a user question and listens for incremental responses
+     * from the backend. Each chunk of data is processed and forwarded to the UI
+     * via the provided {@link Consumer}.</p>
+     *
+     * @param chatHash Unique identifier of the chat session
+     * @param question User's input question
+     * @param eventHandler Callback invoked for each streamed content chunk
+     * @throws AIBackendException if:
+     * <ul>
+     *     <li>The HTTP request fails</li>
+     *     <li>The backend returns a non-200 status</li>
+     *     <li>A streaming error occurs</li>
+     *     <li>The stream cannot be read or parsed</li>
+     * </ul>
+     */
     @Override
     public void streamChatResponse(String chatHash, String question, Consumer<String> eventHandler) throws AIBackendException {
-        // TODO: Implement later (step 4)
-        throw new UnsupportedOperationException("Backend HTTP calls are not yet implemented.");
+        try {
+            // Construct the JSON payload for the query
+            JsonObject payload = new JsonObject();
+            payload.addProperty("chat_hash", chatHash);
+            payload.addProperty("user_question", question);
+            payload.add("previousmessages", new JsonArray()); // Future multi-turn support
+
+            String jsonBody = gson.toJson(payload);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(config.getBaseUrl() + "/api/chat/stream"))
+                    .header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + config.getApiKey())
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            // response as an InputStream so we can process data as it arrives.
+            HttpResponse<java.io.InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            
+            if (response.statusCode() != 200) {
+                throw new AIBackendException("Backend returned HTTP " + response.statusCode());
+            }
+
+            // Process the Server-Sent Events (SSE) stream
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+                String line;
+                
+                // Blocks here until a new line arrives over the network, then processes it
+                while ((line = reader.readLine()) != null) {
+                    
+                    // SSE protocol dictates data lines begin with "data: "
+                    if (line.startsWith("data: ")) {
+                        String jsonData = line.substring(6).trim(); // Strips the "data: "
+                        
+                        // Ignore keep-alive pings or the final closure signal
+                        if (jsonData.isEmpty() || jsonData.equals("[DONE]")) continue;
+
+                        // Parse the JSON, figure what type of message it is
+                        JsonObject eventObj = JsonParser.parseString(jsonData).getAsJsonObject();
+                        String type = eventObj.has("type") ? eventObj.get("type").getAsString() : "";
+                        
+                        // Isolate the actual content
+                        if (eventObj.has("content")) {
+                            String content = eventObj.get("content").getAsString();
+                            
+                            // Route the token to the UI using the Consumer callback
+                            if (type.equals("status") || type.equals("thinking")) {
+                                // Format metadata in italics for the UI
+                                eventHandler.accept("\n_" + content + "_\n");
+                            } else if (type.equals("final")) {
+                                // Push the raw LLM token directly to the screen
+                                eventHandler.accept(content); 
+                            } else if (type.equals("error")) {
+                                throw new AIBackendException("Backend Streaming Error: " + content);
+                            }
+                        }
+                    }
+                }
+            }
+
+        } catch (Exception e) {
+            throw new AIBackendException("Failed to stream chat response: " + e.getMessage(), e);
+        }
     }
 }
