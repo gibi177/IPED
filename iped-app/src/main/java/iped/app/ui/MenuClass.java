@@ -21,6 +21,7 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 
 import javax.swing.JComponent;
@@ -51,7 +52,7 @@ public class MenuClass extends JPopupMenu {
     JMenuItem exportHighlighted, copyHighlighted, checkHighlighted, uncheckHighlighted, readHighlighted, unreadHighlighted, exportChecked, copyChecked, saveBookmarks, loadBookmarks,
             checkHighlightedAndSubItems, uncheckHighlightedAndSubItems, checkHighlightedAndParent, uncheckHighlightedAndParent, checkHighlightedAndReferences, uncheckHighlightedAndReferences, checkHighlightedAndReferencedBy, uncheckHighlightedAndReferencedBy,
             changeGalleryColCount, defaultLayout, changeLayout, previewScreenshot, manageBookmarks, clearSearchHistory, importKeywords, navigateToParent, exportTerms, manageFilters, manageColumns, exportCheckedToZip, exportCheckedTreeToZip,
-            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, addToAIContext, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
+            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, addToAIContext, addAllMarkedToAIContext, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
             similarFacesCurrent, similarFacesExternal, toggleTimelineView, uiZoom, catIconSize, savePanelsLayout, loadPanelsLayout;
 
     MenuListener menuListener = new MenuListener(this);
@@ -335,32 +336,35 @@ public class MenuClass extends JPopupMenu {
         this.add(addToGraph);
         
         // AI Context 
-        String aiContextText = "Add to AI Context";
-        try { aiContextText = Messages.getString("MenuClass.AddToAIContext"); } catch(Exception ignored) {}
-        
-        addToAIContext = new JMenuItem(aiContextText);
+        addToAIContext = new JMenuItem(Messages.getString("MenuClass.AddToAIContext")); //$NON-NLS-1$
         try {
             addToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
         } catch (Exception ignored) {}
         
         addToAIContext.setEnabled(item != null);
         addToAIContext.addActionListener(e -> {
-            // Run on background thread to prevent UI freezing if many files are selected
             new Thread(() -> {
-                List<IItem> itemsToAdd = getSelectedOrCheckedItems(item);
-                
-                if (!itemsToAdd.isEmpty()) {
-                    // Add all items in a single batch operation
-                    AIContextManager.getInstance().addContextFiles(itemsToAdd);
-                    
-                    // UI updates must happen on the Event Dispatch Thread
-                    SwingUtilities.invokeLater(() -> {
-                        AIAssistantPanel.getInstance().showPanel();
-                    });
-                }
+                AIContextManager.getInstance().addContextFile(item);
+                SwingUtilities.invokeLater(() -> AIAssistantPanel.getInstance().showPanel());
             }).start();
         });
         this.add(addToAIContext);
+
+        addAllMarkedToAIContext = new JMenuItem(Messages.getString("MenuClass.AddAllMarkedToAIContext")); //$NON-NLS-1$
+        try {
+            addAllMarkedToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
+        } catch (Exception ignored) {}
+
+        addAllMarkedToAIContext.addActionListener(e -> {
+            new Thread(() -> {
+                List<IItem> itemsToAdd = getMarkedItems();
+                if (!itemsToAdd.isEmpty()) {
+                    AIContextManager.getInstance().addContextFiles(itemsToAdd);
+                    SwingUtilities.invokeLater(() -> AIAssistantPanel.getInstance().showPanel());
+                }
+            }).start();
+        });
+        this.add(addAllMarkedToAIContext);
 
         this.addSeparator();
 
@@ -371,37 +375,26 @@ public class MenuClass extends JPopupMenu {
     } 
 
     // Helper Methods moved outside the constructor
-    private List<IItem> getSelectedOrCheckedItems(IItem clickedItem) {
-        List<IItem> selectedItems = new ArrayList<>();
+    private List<IItem> getMarkedItems() {
+        LinkedHashSet<IItem> selectedItems = new LinkedHashSet<>();
         JTable table = App.get().getResultsTable();
-        
+
         if (table != null && !isTreeMenu) {
-            // Check for "Checked" items 
-            int checkCol = table.convertColumnIndexToView(1); 
-            for (int i = 0; i < table.getRowCount(); i++) {
-                Boolean isChecked = (Boolean) table.getValueAt(i, checkCol);
-                if (Boolean.TRUE.equals(isChecked)) {
-                    selectedItems.add(resolveItemFromRow(table, i));
-                }
-            }
-            
-            // Fallback: Check for standard highlighted rows if nothing is checked
-            if (selectedItems.isEmpty()) {
-                int[] selectedRows = table.getSelectedRows();
-                if (selectedRows.length > 1) { // More than just the clicked row
-                    for (int row : selectedRows) {
-                        selectedItems.add(resolveItemFromRow(table, row));
+            // Checked state is stored in model column 1 (BaseTableModel), regardless of visible column order.
+            int checkedModelCol = 1;
+            Class<?> colClass = table.getModel().getColumnClass(checkedModelCol);
+            if (colClass == Boolean.class || colClass == boolean.class) {
+                for (int viewRow = 0; viewRow < table.getRowCount(); viewRow++) {
+                    int modelRow = table.convertRowIndexToModel(viewRow);
+                    Object cellValue = table.getModel().getValueAt(modelRow, checkedModelCol);
+                    if (Boolean.TRUE.equals(cellValue)) {
+                        selectedItems.add(resolveItemFromRow(table, viewRow));
                     }
                 }
             }
         }
-        
-        // Fallback: Just use the single right-clicked item
-        if (selectedItems.isEmpty() && clickedItem != null) {
-            selectedItems.add(clickedItem);
-        }
-        
-        return selectedItems;
+
+        return new ArrayList<>(selectedItems);
     }
 
     private IItem resolveItemFromRow(JTable table, int viewRow) {

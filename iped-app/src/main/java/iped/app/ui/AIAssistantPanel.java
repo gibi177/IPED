@@ -181,8 +181,15 @@ public class AIAssistantPanel {
                     .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
             if (value instanceof ContextFileEntry) {
                 ContextFileEntry entry = (ContextFileEntry) value;
-                label.setText(entry.getDisplayLabel());
-                label.setToolTipText(entry.getFullPath());
+                if (entry.isValidForContext()) {
+                    label.setText(entry.getDisplayLabel());
+                    label.setToolTipText(entry.getFullPath());
+                } else {
+                    String reason = entry.getValidationReason() != null ? entry.getValidationReason() : "Rejected item.";
+                    label.setText(entry.getFileName() + " - " + reason);
+                    label.setToolTipText(reason + " Path: " + entry.getFullPath());
+                    label.setForeground(new Color(180, 0, 0));
+                }
             }
             return label;
         });
@@ -224,10 +231,12 @@ public class AIAssistantPanel {
      * Updates the context list UI based on current AI context files.
      */
     private void refreshContextUI() {
-        List<IItem> files = AIContextManager.getInstance().getContextFiles();
+        List<ContextFileEntry> entries = AIContextManager.getInstance().getContextEntriesForUI();
+        List<IItem> validFiles = AIContextManager.getInstance().getContextFiles();
+        int invalidCount = entries.size() - validFiles.size();
         contextListModel.clear();
 
-        if (files.isEmpty()) {
+        if (entries.isEmpty()) {
             contextEmptyLabel.setVisible(true);
             contextList.setVisible(false);
             clearContextButton.setEnabled(false);
@@ -235,12 +244,16 @@ public class AIAssistantPanel {
             contextEmptyLabel.setVisible(false);
             contextList.setVisible(true);
             clearContextButton.setEnabled(true);
-            for (IItem file : files) {
-                contextListModel.addElement(new ContextFileEntry(file));
+            for (ContextFileEntry entry : entries) {
+                contextListModel.addElement(entry);
             }
         }
 
-        contextBorder.setTitle("Added Context (" + files.size() + " files)");
+        if (invalidCount > 0) {
+            contextBorder.setTitle("Added Context (" + validFiles.size() + " valid, " + invalidCount + " rejected)");
+        } else {
+            contextBorder.setTitle("Added Context (" + validFiles.size() + " valid)");
+        }
         contextPanel.repaint();
     }
 
