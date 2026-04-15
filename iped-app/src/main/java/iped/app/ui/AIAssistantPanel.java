@@ -15,6 +15,8 @@ import iped.app.ui.ai.AIContextManager;
 import iped.app.ui.ai.ContextChangeEvent;
 import iped.app.ui.ai.ContextChangeListener;
 import iped.app.ui.ai.ContextFileEntry;
+import iped.app.ui.ai.backend.AIBackendClient;
+import iped.app.ui.ai.backend.AIBackendConfig;
 import iped.data.IItem;
 
 /**
@@ -68,9 +70,8 @@ public class AIAssistantPanel {
      */
     private AIAssistantPanel() {
         // Initialize the Controller. 
-        // We use Dependency Injection here to pass the Mock Service. 
         this.coordinator = new iped.app.ui.ai.AIChatCoordinator(
-            new iped.app.ui.ai.backend.AIBackendMockService()
+            new AIBackendClient(AIBackendConfig.loadFromSystemProperties())
         );
         
         createUI();
@@ -122,7 +123,7 @@ public class AIAssistantPanel {
         dialog.pack();
         positionDialog();
 
-        addMessage("System", "UI Layer Active. Integrated with Coordinator and Mock Backend. Right click files to add them to Context.");
+        addMessage("System", "AI Assistant ready. Connected to local Backend server.\nRight-click an HTML WhatsApp chat export to add it to the context, then type your question.");
     }
 
     private JPanel createHeaderPanel() {
@@ -133,8 +134,9 @@ public class AIAssistantPanel {
         JLabel titleLabel = new JLabel(titleText);
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
 
-        statusLabel = new JLabel("● Local Mock Backend"); // Updated status
-        statusLabel.setForeground(new Color(0, 150, 0)); // Make it green to show it's active
+        // Update status label to indicate live connection
+        statusLabel = new JLabel("● Connected to local backend server"); 
+        statusLabel.setForeground(new Color(0, 150, 0)); // Green for active
 
         JPanel leftPanel = new JPanel(new BorderLayout());
         leftPanel.add(titleLabel, BorderLayout.NORTH);
