@@ -14,9 +14,7 @@ public class AIBackendConfig {
     // The root URL of the AI API endpoint 
     private final String baseUrl;
     
-    /** The authentication key required to access the AI service. 
-     * This may be an empty string or null if connecting to an unsecured local model.
-     */
+    // The authentication key required to access the AI service. 
     private final String apiKey;
 
     public AIBackendConfig(String baseUrl, String apiKey) {
@@ -28,7 +26,7 @@ public class AIBackendConfig {
         return baseUrl;
     }
 
-    public String getApiKey() {
+    public String getapiKey() {
         return apiKey;
     }
     
@@ -48,8 +46,8 @@ public class AIBackendConfig {
      */
     public static AIBackendConfig loadFromSystemProperties() {
         // Default to local SARD backend port 8000
-        String url = System.getProperty("iped.ai.url", "http://10.61.86.244:32058");
-        String key = System.getProperty("iped.ai.key", "change-me");
-        return new AIBackendConfig(url, key);
+        String url = System.getProperty("iped.ai.url", "http://localhost:8000");
+        String apiKey = System.getProperty("iped.ai.key", "change-me");
+        return new AIBackendConfig(url, apiKey);
     }
 }

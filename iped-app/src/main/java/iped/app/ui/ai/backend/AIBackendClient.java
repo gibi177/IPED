@@ -46,8 +46,9 @@ public class AIBackendClient implements AIBackendService {
     public AIBackendClient(AIBackendConfig config) {
         this.config = config;
         this.gson = new Gson();
-        // Create an HTTP client with a reasonable timeout
+        // Create an HTTP client explicitly locked to HTTP/1.1 (required for the backend)
         this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10))
                 .build();
     }
@@ -79,8 +80,9 @@ public class AIBackendClient implements AIBackendService {
             // Build the POST request targeting the initialization endpoint
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(config.getBaseUrl() + "/api/init_chat"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + config.getApiKey())
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + config.getapiKey())
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                     .build();
 
@@ -138,8 +140,9 @@ public class AIBackendClient implements AIBackendService {
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(config.getBaseUrl() + "/api/chat/stream"))
-                    .header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + config.getApiKey())
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + config.getapiKey())
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                     .build();
 
