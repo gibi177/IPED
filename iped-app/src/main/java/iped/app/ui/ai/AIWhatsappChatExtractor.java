@@ -4,6 +4,8 @@ import iped.data.IItem;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import iped.parsers.standard.StandardParser;
+import iped.parsers.whatsapp.WhatsAppParser;
 
 /**
  * A utility service responsible for validating and extracting text content 
@@ -25,29 +27,16 @@ public class AIWhatsappChatExtractor {
      * @return true if the file indicates HTML or WhatsApp chat content; false otherwise.
      */
     public boolean isPotentiallyValidChat(IItem item) {
-        if (item == null) return false;
-        
-        // Check by explicit file extension
-        String ext = item.getExt();
-        if (ext != null && (ext.equalsIgnoreCase("html") || ext.equalsIgnoreCase("htm"))) {
-            return true;
-        }
-        
-        // Check by IPED's Media Type (MIME type string, e.g., "text/html")
-        if (item.getMediaType() != null) {
-            String mimeType = item.getMediaType().getType().toLowerCase();
-            if (mimeType.contains("html")) {
-                return true;
-            }
+        if (item == null) {
+            return false;
         }
 
-        // Check by Virtual Filename (Fallback for .db extractions)
-        String name = item.getName();
-        if (name != null && name.toLowerCase().startsWith("whatsapp chat")) {
+        String chatContentType = WhatsAppParser.WHATSAPP_CHAT.toString();
+        if (item.getMediaType() != null && chatContentType.equals(item.getMediaType().toString())) {
             return true;
         }
-        
-        return false;
+
+        return item.getMetadata() != null && chatContentType.equals(item.getMetadata().get(StandardParser.INDEXER_CONTENT_TYPE));
     }
 
     /**
@@ -60,7 +49,7 @@ public class AIWhatsappChatExtractor {
      */
     public String extractHtml(IItem item) throws Exception {
         if (!isPotentiallyValidChat(item)) {
-            throw new IllegalArgumentException("Selected file does not appear to be an HTML chat export.");
+            throw new IllegalArgumentException("Selected file does not appear to be a WhatsApp chat export.");
         }
 
         // Try-with-resources ensures streams are closed automatically, preventing memory/file handle leaks.

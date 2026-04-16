@@ -7,6 +7,10 @@ import javax.swing.SwingUtilities;
 import javax.swing.event.EventListenerList;
 
 import iped.data.IItem;
+import iped.engine.lucene.analysis.CategoryTokenizer;
+import iped.parsers.standard.StandardParser;
+import iped.parsers.whatsapp.WhatsAppParser;
+import iped.properties.ExtraProperties;
 
 /**
  * Singleton manager responsible for maintaining the AI context file list.
@@ -32,6 +36,9 @@ public class AIContextManager {
     
     /** Thread-safe list holding context files */
     private final List<IItem> contextFiles;
+
+    /** Invalid entries shown only in UI as feedback */
+    private final List<ContextFileEntry> invalidEntries;
     
     /** Listener list for context change events */
     private final EventListenerList listeners;
@@ -41,6 +48,7 @@ public class AIContextManager {
      */
     private AIContextManager() {
         this.contextFiles = new CopyOnWriteArrayList<>();
+        this.invalidEntries = new CopyOnWriteArrayList<>();
         this.listeners = new EventListenerList();
     }
     
@@ -62,15 +70,12 @@ public class AIContextManager {
      * @param item the item to add; ignored if {@code null}
      */
     public void addContextFile(IItem item) {
-        if (item == null) return;
-        
-        boolean alreadyExists = contextFiles.stream()
-            .anyMatch(existing -> existing.getId() == item.getId());
-        
-        if (!alreadyExists) {
-            contextFiles.add(item);
-            fireContextChanged(ContextChangeEvent.FILE_ADDED);
+        if (item == null) {
+            return;
         }
+        List<IItem> single = new ArrayList<>(1);
+        single.add(item);
+        addContextFiles(single);
     }
     
     /**
@@ -79,7 +84,14 @@ public class AIContextManager {
      * @param item the item to remove
      */
     public void removeContextFile(IItem item) {
-        if (contextFiles.removeIf(existing -> existing.getId() == item.getId())) {
+        if (item == null) {
+            return;
+        }
+
+        boolean removedValid = contextFiles.removeIf(existing -> existing.getId() == item.getId());
+        boolean removedInvalid = invalidEntries.removeIf(entry -> entry.getItem().getId() == item.getId());
+
+        if (removedValid || removedInvalid) {
             fireContextChanged(ContextChangeEvent.FILE_REMOVED);
         }
     }
@@ -88,8 +100,9 @@ public class AIContextManager {
      * Clears all context files.
      */
     public void clearContext() {
-        if (!contextFiles.isEmpty()) {
+        if (!contextFiles.isEmpty() || !invalidEntries.isEmpty()) {
             contextFiles.clear();
+            invalidEntries.clear();
             fireContextChanged(ContextChangeEvent.CLEARED);
         }
     }
@@ -101,6 +114,18 @@ public class AIContextManager {
      */
     public List<IItem> getContextFiles() {
         return new ArrayList<>(contextFiles);
+    }
+
+    /**
+     * Returns entries to display in the UI: valid context files plus invalid items with reasons.
+     */
+    public List<ContextFileEntry> getContextEntriesForUI() {
+        List<ContextFileEntry> result = new ArrayList<>();
+        for (IItem file : contextFiles) {
+            result.add(new ContextFileEntry(file));
+        }
+        result.addAll(invalidEntries);
+        return result;
     }
     
     /**
@@ -154,26 +179,229 @@ public class AIContextManager {
      * @param items list of items to add; ignored if {@code null} or empty
      */
     public void addContextFiles(List<IItem> items) {
-        if (items == null || items.isEmpty()) return;
-        
-        boolean addedAny = false;
-        
+        if (items == null || items.isEmpty()) {
+            return;
+        }
+
+        boolean changedAny = false;
+
         for (IItem item : items) {
-            if (item == null) continue;
-            
-            // Deduplication check
+            if (item == null) {
+                continue;
+            }
+
+            String rejectionReason = getRejectionReason(item);
+            if (rejectionReason != null) {
+                if (invalidEntries.removeIf(entry -> entry.getItem().getId() == item.getId())) {
+                    changedAny = true;
+                }
+                invalidEntries.add(ContextFileEntry.invalid(item, rejectionReason));
+                changedAny = true;
+                continue;
+            }
+
+            // Item became valid, ensure it is no longer flagged as invalid
+            if (invalidEntries.removeIf(entry -> entry.getItem().getId() == item.getId())) {
+                changedAny = true;
+            }
+
             boolean alreadyExists = contextFiles.stream()
-                .anyMatch(existing -> existing.getId() == item.getId());
-                
+                    .anyMatch(existing -> existing.getId() == item.getId());
+
             if (!alreadyExists) {
                 contextFiles.add(item);
-                addedAny = true;
+                changedAny = true;
             }
         }
-        
-        // Fire a single event after the entire batch is processed
-        if (addedAny) {
+
+        if (changedAny) {
             fireContextChanged(ContextChangeEvent.FILE_ADDED);
         }
+    }
+
+    private String getRejectionReason(IItem item) {
+        if (!isWhatsAppChatItem(item)) {
+            return "Rejected: Not a WhatsApp chat item.";
+        }
+
+        if (hasEmptyFilesCategory(item)) {
+            return "Rejected: Category is Empty Files.";
+        }
+
+        if (hasSummary(item)) {
+            return null;
+        }
+
+        Boolean isEmpty = readCommunicationIsEmpty(item);
+        if (Boolean.TRUE.equals(isEmpty)) {
+            return "Rejected: Communication is empty.";
+        }
+        return null;
+    }
+
+    private boolean isWhatsAppChatItem(IItem item) {
+        if (item == null) {
+            return false;
+        }
+
+        String chatContentType = WhatsAppParser.WHATSAPP_CHAT.toString();
+        if (item.getMediaType() != null && chatContentType.equals(item.getMediaType().toString())) {
+            return true;
+        }
+
+        if (item.getMetadata() != null) {
+            String indexedContentType = item.getMetadata().get(StandardParser.INDEXER_CONTENT_TYPE);
+            if (chatContentType.equals(indexedContentType)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private boolean hasEmptyFilesCategory(IItem item) {
+        if (item == null) {
+            return false;
+        }
+
+        if (item.getCategorySet() != null) {
+            for (String category : item.getCategorySet()) {
+                if (isEmptyFilesCategoryValue(category)) {
+                    return true;
+                }
+            }
+        }
+
+        String categories = item.getCategories();
+        if (categories != null && !categories.isBlank()) {
+            String[] splitCategories = categories.split(String.valueOf(CategoryTokenizer.SEPARATOR));
+            for (String category : splitCategories) {
+                if (isEmptyFilesCategoryValue(category)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
+    private boolean isEmptyFilesCategoryValue(String value) {
+        if (value == null) {
+            return false;
+        }
+
+        String normalized = value.trim().toLowerCase();
+        return normalized.equals("empty files") || normalized.contains("empty files");
+    }
+
+    private Boolean readCommunicationIsEmpty(IItem item) {
+        if (item == null) {
+            return null;
+        }
+
+        String[] keys = {
+            ExtraProperties.COMMUNICATION_PREFIX + "isEmpty"
+        };
+
+        for (String key : keys) {
+            Boolean parsed = parseBooleanValue(readFirstValue(item, key));
+            if (parsed != null) {
+                return parsed;
+            }
+        }
+        return null;
+    }
+
+    private boolean hasSummary(IItem item) {
+        if (item == null) {
+            return false;
+        }
+
+        Object extraValue = item.getExtraAttribute(ExtraProperties.SUMMARY);
+        if (extraValue instanceof String) {
+            if (!((String) extraValue).trim().isEmpty()) {
+                return true;
+            }
+        } else if (extraValue instanceof java.util.Collection<?>) {
+            for (Object value : (java.util.Collection<?>) extraValue) {
+                if (value != null && !value.toString().trim().isEmpty()) {
+                    return true;
+                }
+            }
+        } else if (extraValue instanceof Object[]) {
+            for (Object value : (Object[]) extraValue) {
+                if (value != null && !value.toString().trim().isEmpty()) {
+                    return true;
+                }
+            }
+        } else if (extraValue instanceof String[]) {
+            for (String value : (String[]) extraValue) {
+                if (value != null && !value.trim().isEmpty()) {
+                    return true;
+                }
+            }
+        }
+
+        if (item.getMetadata() == null) {
+            return false;
+        }
+
+        String[] values = item.getMetadata().getValues(ExtraProperties.SUMMARY);
+        if (values != null) {
+            for (String value : values) {
+                if (value != null && !value.trim().isEmpty()) {
+                    return true;
+                }
+            }
+        }
+
+        String single = item.getMetadata().get(ExtraProperties.SUMMARY);
+        return single != null && !single.trim().isEmpty();
+    }
+
+    private String readFirstValue(IItem item, String key) {
+        Object extra = item.getExtraAttribute(key);
+        if (extra != null) {
+            if (extra instanceof String) {
+                return (String) extra;
+            }
+            if (extra instanceof Boolean) {
+                return String.valueOf(extra);
+            }
+            if (extra instanceof String[] && ((String[]) extra).length > 0) {
+                return ((String[]) extra)[0];
+            }
+            return String.valueOf(extra);
+        }
+
+        if (item.getMetadata() == null) {
+            return null;
+        }
+
+        String value = item.getMetadata().get(key);
+        if (value != null) {
+            return value;
+        }
+
+        String[] values = item.getMetadata().getValues(key);
+        if (values != null && values.length > 0) {
+            return values[0];
+        }
+
+        return null;
+    }
+
+    private Boolean parseBooleanValue(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String normalized = raw.trim().toLowerCase();
+        if ("true".equals(normalized) || "1".equals(normalized)) {
+            return Boolean.TRUE;
+        }
+        if ("false".equals(normalized) || "0".equals(normalized)) {
+            return Boolean.FALSE;
+        }
+        return null;
     }
 }
