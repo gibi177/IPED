@@ -1,7 +1,6 @@
 package iped.app.ui.ai.backend;
 
 import com.google.gson.Gson;
-import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -72,9 +71,8 @@ public class AIBackendClient implements AIBackendService {
     @Override
     public String initChat(String chatHtml) throws AIBackendException {
         try {
-            // Construct the JSON payload {"chat_content": "..."}
-            JsonObject payload = new JsonObject();
-            payload.addProperty("chat_content", chatHtml);
+            // Construct the payload using the specified DTO for initChat
+            AIInitChatRequest payload = new AIInitChatRequest(chatHtml);
             String jsonBody = gson.toJson(payload);
 
             // Build the POST request targeting the initialization endpoint
@@ -82,7 +80,7 @@ public class AIBackendClient implements AIBackendService {
                     .uri(URI.create(config.getBaseUrl() + "/api/init_chat"))
                     .header("Content-Type", "application/json; charset=utf-8")
                     .header("Accept", "application/json")
-                    .header("Authorization", "Bearer " + config.getapiKey())
+                    .header("Authorization", "Bearer " + config.getApiKey())
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                     .build();
 
@@ -130,19 +128,15 @@ public class AIBackendClient implements AIBackendService {
     @Override
     public void streamChatResponse(String chatHash, String question, Consumer<String> eventHandler) throws AIBackendException {
         try {
-            // Construct the JSON payload for the query
-            JsonObject payload = new JsonObject();
-            payload.addProperty("chat_hash", chatHash);
-            payload.addProperty("user_question", question);
-            payload.add("previousmessages", new JsonArray()); // Future multi-turn support
-
+            // Construct the payload for the query using the specified DTO
+            AIStreamChatRequest payload = new AIStreamChatRequest(chatHash, question);
             String jsonBody = gson.toJson(payload);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(config.getBaseUrl() + "/api/chat/stream"))
                     .header("Content-Type", "application/json; charset=utf-8")
                     .header("Accept", "application/json")
-                    .header("Authorization", "Bearer " + config.getapiKey())
+                    .header("Authorization", "Bearer " + config.getApiKey())
                     .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
                     .build();
 

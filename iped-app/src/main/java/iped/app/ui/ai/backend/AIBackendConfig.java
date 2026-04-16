@@ -26,7 +26,7 @@ public class AIBackendConfig {
         return baseUrl;
     }
 
-    public String getapiKey() {
+    public String getApiKey() {
         return apiKey;
     }
     

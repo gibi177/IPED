@@ -7,24 +7,19 @@ package iped.app.ui.ai.backend;
  * a new stateful chat session. 
  * </p>
  */
-public class AIChatRequest {
+public class AIInitChatRequest {
     
     /**
      * The raw text or HTML content to be analyzed by the AI.
      * Note: The snake_case naming convention is used intentionally here to map 
-     * directly to the Python backend's expected JSON schema without requiring 
-     * additional serialization annotations.
+     * directly to the Python backend's expected JSON schema 
      */
     private final String chat_content;
 
-    public AIChatRequest(String chat_content) {
+    public AIInitChatRequest(String chat_content) {
         this.chat_content = chat_content;
     }
 
-    /**
-     * Retrieves the chat content payload.
-     * @return The string content.
-     */
     public String getChatContent() {
         return chat_content;
     }
