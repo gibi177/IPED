@@ -2,7 +2,9 @@ package iped.app.ui.ai;
 
 import iped.app.ui.ai.backend.AIBackendException;
 import iped.app.ui.ai.backend.AIBackendService;
+import iped.app.ui.ai.backend.AIStreamChatRequest;
 import iped.data.IItem;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
 
@@ -24,6 +26,8 @@ public class AIChatCoordinator {
     private String currentChatHash = null;
     private IItem currentContextItem = null;
 
+    private final List<AIStreamChatRequest.AIMessage> chatHistory = new ArrayList<>();
+
     /**
      * Constructs a new coordinator.
      * * @param backendService The backend client (can be a Mock or HTTP client) injected 
@@ -32,6 +36,15 @@ public class AIChatCoordinator {
     public AIChatCoordinator(AIBackendService backendService) {
         this.backendService = backendService;
         this.extractor = new AIWhatsappChatExtractor();
+    }
+
+    /**
+     * Removes tags from llm response to safely attach to chatHistory
+     * 
+     * @param rawResponse The llm response received 
+     */
+    public String cleanThinkingTags(String rawResponse) {
+        return rawResponse.replaceAll("(?m)^_.*_$\\n?", "").trim();
     }
 
     /**
@@ -70,12 +83,26 @@ public class AIChatCoordinator {
                     String html = extractor.extractHtml(item);
                     currentChatHash = backendService.initChat(html);
                     currentContextItem = item; // Update cache
+                    chatHistory.clear();
                 }
 
                 // Step B: Stream the response
+                StringBuilder fullResponse = new StringBuilder(); 
                 uiCallback.accept("[Assistant]: ");
-                backendService.streamChatResponse(currentChatHash, question, uiCallback);
+                
+                // Use a lambda to intercept the tokens
+                backendService.streamChatResponse(currentChatHash, question, chatHistory, token -> {
+                    // Send to the screen
+                    uiCallback.accept(token); 
+
+                    // Accumulate in memory
+                    fullResponse.append(token); 
+                });
+
                 uiCallback.accept("\n\n");
+                String finalAnswer = cleanThinkingTags(fullResponse.toString());
+                chatHistory.add(new AIStreamChatRequest.AIMessage("user", question));
+                chatHistory.add(new AIStreamChatRequest.AIMessage("assistant", finalAnswer));
 
             } catch (Exception e) {
                 onError.accept("backend error: " + e.getMessage());

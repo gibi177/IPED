@@ -13,6 +13,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.function.Consumer;
+import java.util.List;
 
 /**
  * Concrete implementation of {@link AIBackendService} responsible for handling
@@ -116,6 +117,7 @@ public class AIBackendClient implements AIBackendService {
      *
      * @param chatHash Unique identifier of the chat session
      * @param question User's input question
+     * @param history The previous messages of this same chat
      * @param eventHandler Callback invoked for each streamed content chunk
      * @throws AIBackendException if:
      * <ul>
@@ -126,10 +128,10 @@ public class AIBackendClient implements AIBackendService {
      * </ul>
      */
     @Override
-    public void streamChatResponse(String chatHash, String question, Consumer<String> eventHandler) throws AIBackendException {
+    public void streamChatResponse(String chatHash, String question, List<AIStreamChatRequest.AIMessage> history, Consumer<String> eventHandler) throws AIBackendException {
         try {
             // Construct the payload for the query using the specified DTO
-            AIStreamChatRequest payload = new AIStreamChatRequest(chatHash, question);
+            AIStreamChatRequest payload = new AIStreamChatRequest(chatHash, question, history);
             String jsonBody = gson.toJson(payload);
 
             HttpRequest request = HttpRequest.newBuilder()

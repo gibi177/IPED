@@ -1,6 +1,5 @@
 package iped.app.ui.ai.backend;
 
-import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -19,10 +18,10 @@ public class AIStreamChatRequest {
     private final String user_question;
     private final List<AIMessage> previousmessages;
 
-    public AIStreamChatRequest(String chatHash, String userQuestion) {
+    public AIStreamChatRequest(String chatHash, String userQuestion, List<AIMessage> previousmessages) {
         this.chat_hash = chatHash;
         this.user_question = userQuestion;
-        this.previousmessages = new ArrayList<>();
+        this.previousmessages = previousmessages;
     }
 
     // Public getter methods

@@ -1,6 +1,7 @@
 package iped.app.ui.ai.backend;
 
 import java.util.function.Consumer;
+import java.util.List;
 
 public interface AIBackendService {
     
@@ -16,10 +17,12 @@ public interface AIBackendService {
      * Queries the LLM regarding a previously initialized chat.
      * @param chatHash The hash returned from initChat.
      * @param question The user's question.
+     * @param history The chat history composed of previous messages
      * @param eventHandler A callback that receives streamed tokens/status updates from the LLM.
      *                     Allows the implementing class to push tokens to the UI as soon as they
-     *                     arrive over the network.
+     *                     arrive over the network. 
+     * 
      * @throws AIBackendException if the connection fails.
      */
-    void streamChatResponse(String chatHash, String question, Consumer<String> eventHandler) throws AIBackendException;
+    void streamChatResponse(String chatHash, String question, List<AIStreamChatRequest.AIMessage> history, Consumer<String> eventHandler) throws AIBackendException;
 }
