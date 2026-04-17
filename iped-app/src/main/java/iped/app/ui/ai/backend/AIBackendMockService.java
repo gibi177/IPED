@@ -1,6 +1,7 @@
 package iped.app.ui.ai.backend;
 
 import java.util.function.Consumer;
+import java.util.List;
 
 /**
  * A mock implementation of the {@link AIBackendService} used for UI testing and local development.
@@ -22,7 +23,7 @@ public class AIBackendMockService implements AIBackendService{
     }
 
     @Override
-    public void streamChatResponse(String chatHash, String question, Consumer<String> eventHandler) throws AIBackendException {
+    public void streamChatResponse(String chatHash, String question, List<AIStreamChatRequest.AIMessage> history, Consumer<String> eventHandler) throws AIBackendException {
         // Simulate the chunked responses (Server-Sent Events)
         String[] mockTokens = {
             "Based ", "on ", "the ", "provided ", "file, ", "this ", "is ", "a ", "simulated ", "response."
