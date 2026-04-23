@@ -2,6 +2,8 @@ package iped.app.ui.ai;
 
 import iped.app.ui.ai.backend.AIInitMultiChatRequest;
 import iped.app.ui.ai.backend.AIInitMultiChatRequest.SummarizedChat;
+import iped.data.IItem;
+import iped.properties.ExtraProperties;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -51,8 +53,23 @@ public class AIPayloadFactory {
             
             // Adapter Pattern: The Python backend expects lists for summaries and IDs
             // Since IPED joined them into one block, send a list of size 1
-            List<String> summariesList = Collections.singletonList(entry.getSummary());
-            List<String> summaryIdsList = Collections.singletonList("summary_1"); 
+            List<String> summariesList = extractList(entry.getItem(), ExtraProperties.SUMMARY);
+            List<String> summaryIdsList = extractList(entry.getItem(), ExtraProperties.CHUNK_IDS);
+
+            // If the extraction fails, fallback to the UI summary
+            if (summariesList.isEmpty()) {
+                summariesList = Collections.singletonList(entry.getSummary());
+            } 
+
+            // Ensure there is an exact 1:1 mapping of IDs to summaries
+            // If the metadata is missing IDs or the sizes don't match, generate sequential IDs
+            // to prevent crashing the citation engine
+            if (summaryIdsList.isEmpty() || summaryIdsList.size() != summariesList.size()) {
+                summaryIdsList.clear(); // Wipe any mismatched IDs
+                for (int i = 0; i < summariesList.size(); i++) {
+                    summaryIdsList.add("summary_fallback_" + (i + 1));
+                }
+            }
 
             // Build the inner DTO, representing a single summarized chat
             SummarizedChat chatDto = new SummarizedChat(chatId, chatName, summariesList, summaryIdsList);
@@ -65,5 +82,57 @@ public class AIPayloadFactory {
 
         // Return the final wrapper DTO
         return new AIInitMultiChatRequest(summarizedChats);
+    }
+
+    /**
+     * Safely extracts a list of strings from IPED's flexible metadata/attribute storage.
+     */
+    private static List<String> extractList(IItem item, String key) {
+        List<String> result = new ArrayList<>();
+        if (item == null) return result;
+
+        // Check runtime ExtraAttributes first
+        Object extraValue = item.getExtraAttribute(key);
+        if (extraValue instanceof String) {
+            String str = ((String) extraValue).trim();
+            if (!str.isEmpty()) result.add(str);
+            
+        } else if (extraValue instanceof java.util.Collection<?>) {
+            for (Object val : (java.util.Collection<?>) extraValue) {
+                if (val != null && !val.toString().trim().isEmpty()) {
+                    result.add(val.toString().trim());
+                }
+            }
+            
+        } else if (extraValue instanceof Object[]) {
+            for (Object val : (Object[]) extraValue) {
+                if (val != null && !val.toString().trim().isEmpty()) {
+                    result.add(val.toString().trim());
+                }
+            }
+        }
+
+        if (!result.isEmpty()) {
+            return result; // Found via ExtraAttributes
+        }
+
+        // Fallback to Lucene stored Metadata
+        if (item.getMetadata() != null) {
+            String[] values = item.getMetadata().getValues(key);
+            if (values != null && values.length > 0) {
+                for (String val : values) {
+                    if (val != null && !val.trim().isEmpty()) {
+                        result.add(val.trim());
+                    }
+                }
+            } else {
+                String single = item.getMetadata().get(key);
+                if (single != null && !single.trim().isEmpty()) {
+                    result.add(single.trim());
+                }
+            }
+        }
+        
+        return result;
     }
 }
