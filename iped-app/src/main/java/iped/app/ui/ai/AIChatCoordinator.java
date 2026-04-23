@@ -2,19 +2,21 @@ package iped.app.ui.ai;
 
 import iped.app.ui.ai.backend.AIBackendException;
 import iped.app.ui.ai.backend.AIBackendService;
+import iped.app.ui.ai.backend.AIInitMultiChatRequest;
 import iped.app.ui.ai.backend.AIStreamChatRequest;
 import iped.data.IItem;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.stream.Collectors;
 
 /**
  * The central orchestrator that coordinates the flow of data between the UI, 
  * the file extraction utilities, and the AI backend service.
  * <p>
  * This class isolates the complexity of threading, session caching, and error handling 
- * from the presentation layer. It ensures that heavy operations (like extracting files 
- * and making network calls) are safely routed off the main UI thread.
+ * from the presentation layer. 
  * </p>
  */
 public class AIChatCoordinator {
@@ -22,15 +24,15 @@ public class AIChatCoordinator {
     private final AIBackendService backendService;
     private final AIWhatsappChatExtractor extractor;
     
-    // Cache the hash so we don't re-upload the same chat every time
-    private String currentChatHash = null;
-    private IItem currentContextItem = null;
+    // Track lists to support both single and multi-chat
+    private List<String> currentChatHashes = new ArrayList<>();
+    private List<Integer> currentContextItemIds = new ArrayList<>();
 
     private final List<AIStreamChatRequest.AIMessage> chatHistory = new ArrayList<>();
 
     /**
      * Constructs a new coordinator.
-     * * @param backendService The backend client (can be a Mock or HTTP client) injected 
+     * * @param backendService The backend client injected 
      * for handling actual AI communication.
      */
     public AIChatCoordinator(AIBackendService backendService) {
@@ -39,79 +41,100 @@ public class AIChatCoordinator {
     }
 
     /**
-     * Removes tags from llm response to safely attach to chatHistory
-     * 
-     * @param rawResponse The llm response received 
-     */
-    public String cleanThinkingTags(String rawResponse) {
-        return rawResponse.replaceAll("(?m)^_.*_$\\n?", "").trim();
-    }
-
-    /**
      * Executes the complete AI request pipeline: validates the selected file, 
      * uploads the context (if necessary), and streams the AI's response.
-     * @param question   The text prompt from the user.
-     * @param uiCallback A callback used to push status updates and streamed text back to the UI.
+     * @param question   The text prompt from the user
+     * @param uiCallback A callback used to push status updates and streamed text back to the UI
      * @param onComplete A callback triggered when the entire process finishes (success or fail),
-     * typically used to re-enable UI buttons.
-     * @param onError    A callback used to push error messages back to the UI.
+     * typically used to re-enable UI buttons
+     * @param onError    A callback used to push error messages back to the UI
      */
     public void askQuestion(String question, Consumer<String> uiCallback, Runnable onComplete, Consumer<String> onError) {
-        // Validate Context 
-        List<IItem> contextFiles = AIContextManager.getInstance().getContextFiles();
         
-        if (contextFiles.isEmpty()) {
-            onError.accept("Please, add a file to context before asking.");
-            return;
-        }
-        if (contextFiles.size() > 1) {
-            onError.accept("Only one file is currently supported, remove the extra ones.");
+        // Fetch only valid entries from the Context Manager
+        List<ContextFileEntry> validEntries = AIContextManager.getInstance().getContextEntriesForUI()
+                .stream()
+                .filter(ContextFileEntry::isValidForContext)
+                .collect(Collectors.toList());
+
+        if (validEntries.isEmpty()) {
+            onError.accept("Please, add at least one valid file to context before asking.");
             return;
         }
 
-        IItem item = contextFiles.get(0);
+        // Check if the context changed since the last question
+        List<Integer> newContextIds = validEntries.stream()
+                .map(e -> e.getItem().getId())
+                .collect(Collectors.toList());
+        boolean contextChanged = !newContextIds.equals(currentContextItemIds);
 
         // Offload heavy lifting to a background thread
         new Thread(() -> {
             try {
-                // Step A: Extract and Initialize Chat 
-                // If the user uploads a new chat to context, item will refer to
-                // the new chat and currentContextItem will refer to the last chat
-                // then, the condition is fulfilled and a new chat is initialized 
-                if (currentChatHash == null || !item.equals(currentContextItem)) {
-                    uiCallback.accept("[System]: Extracting and sending file...\n\n");
-                    String html = extractor.extractHtml(item);
-                    currentChatHash = backendService.initChat(html);
-                    currentContextItem = item; // Update cache
+                // Step A: Initialize the Chat (Only if context changed)
+                if (contextChanged) {
+                    uiCallback.accept("[System]: Initializing context...\n");
                     chatHistory.clear();
+                    currentChatHashes.clear();
+                    
+                    if (validEntries.size() == 1) {
+                        // Single chat
+                        IItem item = validEntries.get(0).getItem();
+                        String html = extractor.extractHtml(item);
+                        String hash = backendService.initChat(html);
+                        currentChatHashes.add(hash);
+                    } else {
+                        // Multi chat
+                        AIInitMultiChatRequest request = AIPayloadFactory.buildMultiChatRequest(validEntries);
+                        List<String> hashes = backendService.initMultiChat(request);
+                        currentChatHashes.addAll(hashes);
+                    }
+                    
+                    // Update cache state
+                    currentContextItemIds = newContextIds; 
                 }
 
                 // Step B: Stream the response
                 StringBuilder fullResponse = new StringBuilder(); 
                 uiCallback.accept("[Assistant]: ");
-                
-                // Use a lambda to intercept the tokens
-                backendService.streamChatResponse(currentChatHash, question, chatHistory, token -> {
-                    // Send to the screen
-                    uiCallback.accept(token); 
 
-                    // Accumulate in memory
-                    fullResponse.append(token); 
-                });
+                // Route to the correct streaming endpoint
+                if (validEntries.size() == 1) {
+                    // Single chat stream
+                    backendService.streamChatResponse(currentChatHashes.get(0), question, chatHistory, token -> {
+                        uiCallback.accept(token);
+                        fullResponse.append(token);
+                    });
+                } else {
+                    // Multi chat stream
+                    backendService.streamMultiChatResponse(currentChatHashes, question, chatHistory, token -> {
+                        uiCallback.accept(token);
+                        fullResponse.append(token);
+                    });
+                }
 
                 uiCallback.accept("\n\n");
+
+                // Step C: Save the turn to history
                 String finalAnswer = cleanThinkingTags(fullResponse.toString());
                 chatHistory.add(new AIStreamChatRequest.AIMessage("user", question));
                 chatHistory.add(new AIStreamChatRequest.AIMessage("assistant", finalAnswer));
 
             } catch (Exception e) {
-                onError.accept("backend error: " + e.getMessage());
+                onError.accept("Backend error: " + e.getMessage());
                 // Invalidate the cache on error so the next attempt tries a fresh upload
-                currentChatHash = null; 
+                currentContextItemIds.clear();
+                currentChatHashes.clear();
             } finally {
-                // Step C: unlock the UI
                 onComplete.run(); 
             }
         }).start();
+    }
+
+    /**
+     * Removes italicized thinking tags before saving to LLM history.
+     */
+    private String cleanThinkingTags(String rawResponse) {
+        return rawResponse.replaceAll("(?m)^_.*_$\\n?", "").trim();
     }
 }

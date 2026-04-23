@@ -3,7 +3,7 @@
 ##############################################################################
 
 # IP:PORT of the service/central node used by the AISummarizationTask implementation.
-# remoteServiceAddress = 127.0.0.1:8000
+# remoteServiceAddress = 10.61.86.148:30603/summarization
 
 # Remote service communication parameters used by AISummarizationTask.
 busySleepTime = 10.0
