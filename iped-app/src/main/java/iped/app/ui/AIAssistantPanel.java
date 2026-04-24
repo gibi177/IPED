@@ -15,8 +15,8 @@ import javax.swing.text.BadLocationException;
 import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.StyledDocument;
 
+import iped.app.ui.ai.AIChatCoordinator;
 import iped.app.ui.ai.AIChatMessage;
-import iped.app.ui.ai.AIChatService;
 import iped.app.ui.ai.AIContextManager;
 import iped.app.ui.ai.ContextChangeEvent;
 import iped.app.ui.ai.ContextChangeListener;
@@ -56,14 +56,15 @@ public class AIAssistantPanel {
     private JLabel statusLabel;
     private JProgressBar progressBar;
     private AIMarkdownRenderer markdownRenderer;
-    private final List<AIChatMessage> chatMessages = new ArrayList<>();
+    private final List<AIChatMessage> finalizedMessages = new ArrayList<>();
+    private AIChatMessage draftMessage;
     private final List<String> streamQueue = new ArrayList<>();
     private Timer streamTimer;
     private AIChatMessage streamingMessage;
     private Runnable streamDrainAction;
 
     // Service layer that handles business logic and threading
-    private AIChatService chatService;
+    private AIChatCoordinator coordinator;
 
     // Context-related UI components
     private JPanel contextPanel;
@@ -312,7 +313,7 @@ public class AIAssistantPanel {
         bottomPanel.add(sendButton, BorderLayout.EAST);
 
         return bottomPanel;
-    }
+    } 
 
     private void refreshChatArea() {
         JScrollBar verticalBar = chatScrollPane != null ? chatScrollPane.getVerticalScrollBar() : null;
@@ -320,7 +321,7 @@ public class AIAssistantPanel {
         int previousScrollValue = verticalBar != null ? verticalBar.getValue() : -1;
 
         if (markdownRenderer != null) {
-            markdownRenderer.renderMessages(chatMessages);
+            markdownRenderer.renderMessages(buildRenderableMessages());
         } else {
             renderMessagesFallback();
         }
@@ -356,7 +357,7 @@ public class AIAssistantPanel {
     private void renderMessagesFallback() {
         try {
             chatDocument.remove(0, chatDocument.getLength());
-            for (AIChatMessage message : chatMessages) {
+            for (AIChatMessage message : buildRenderableMessages()) {
                 chatDocument.insertString(
                     chatDocument.getLength(),
                     "[" + message.getTime() + "] " + message.getSender() + "\n" + message.getContent() + "\n\n",
@@ -370,12 +371,12 @@ public class AIAssistantPanel {
     }
 
     private boolean ensureChatServiceInitialized() {
-        if (chatService != null) {
+        if (coordinator != null) {
             return true;
         }
 
         try {
-            chatService = new AIChatService(new AIBackendClient(AIBackendConfig.loadFromSystemProperties()));
+            coordinator = new AIChatCoordinator(new AIBackendClient(AIBackendConfig.loadFromSystemProperties()));
             return true;
         } catch (Throwable t) {
             addMessage("System Error", "Failed to initialize AI backend: " + t.getMessage(), "error");
@@ -386,8 +387,16 @@ public class AIAssistantPanel {
     }
 
     private void addMessage(String sender, String message, String type) {
-        chatMessages.add(AIChatMessage.now(sender, message, type));
+        finalizedMessages.add(AIChatMessage.now(sender, message, type));
         refreshChatArea();
+    }
+
+    private List<AIChatMessage> buildRenderableMessages() {
+        List<AIChatMessage> renderableMessages = new ArrayList<>(finalizedMessages);
+        if (draftMessage != null) {
+            renderableMessages.add(draftMessage);
+        }
+        return renderableMessages;
     }
 
     private void addMessage(String sender, String message) {
@@ -545,12 +554,12 @@ public class AIAssistantPanel {
             setProcessing(true);
             
             AIChatMessage assistantDraft = AIChatMessage.now("Assistant", "", "assistant");
-            chatMessages.add(assistantDraft);
+            draftMessage = assistantDraft;
             beginStreaming(assistantDraft);
             refreshChatArea();
             
             // Call the service
-            chatService.askQuestion(
+            coordinator.askQuestion(
                 text, 
                 // Callback 1: Append tokens to the live assistant draft
                 (token) -> javax.swing.SwingUtilities.invokeLater(() -> {
@@ -560,16 +569,19 @@ public class AIAssistantPanel {
                 () -> javax.swing.SwingUtilities.invokeLater(() -> {
                     completeStreaming(() -> {
                         if (assistantDraft.getContent().isEmpty()) {
-                            chatMessages.remove(assistantDraft);
-                            refreshChatArea();
+                            draftMessage = null;
+                        } else {
+                            finalizedMessages.add(assistantDraft);
+                            draftMessage = null;
                         }
+                        refreshChatArea();
                         setProcessing(false);
                     });
                 }),
                 // Callback 3: Handle Errors
                 (errorMessage) -> javax.swing.SwingUtilities.invokeLater(() -> {
                     resetStreamingState();
-                    chatMessages.remove(assistantDraft);
+                    draftMessage = null;
                     refreshChatArea();
                     addMessage("System Error", errorMessage, "error");
                     setProcessing(false);
