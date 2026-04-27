@@ -185,7 +185,7 @@ public class AIAssistantPanel {
             if (value instanceof ContextFileEntry) {
                 ContextFileEntry entry = (ContextFileEntry) value;
                 if (entry.isValidForContext()) {
-                    label.setText(entry.getDisplayLabel());
+                    label.setText(entry.getFileName());
                     label.setToolTipText(entry.getFullPath());
                 } else {
                     String reason = entry.getValidationReason() != null ? entry.getValidationReason() : "Rejected item.";
