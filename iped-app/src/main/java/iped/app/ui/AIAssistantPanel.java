@@ -387,8 +387,14 @@ public class AIAssistantPanel {
     }
 
     private void addMessage(String sender, String message, String type) {
-        finalizedMessages.add(AIChatMessage.now(sender, message, type));
-        refreshChatArea();
+        AIChatMessage chatMessage = AIChatMessage.now(sender, message, type);
+        finalizedMessages.add(chatMessage);
+
+        if (markdownRenderer != null) {
+            appendFinalizedMessage(chatMessage);
+        } else {
+            refreshChatArea();
+        }
     }
 
     private List<AIChatMessage> buildRenderableMessages() {
@@ -502,7 +508,7 @@ public class AIAssistantPanel {
 
         String part = streamQueue.remove(0);
         streamingMessage.appendContent(part);
-        refreshChatArea();
+        renderDraftMessage();
     }
 
     private void completeStreaming(Runnable onDrained) {
@@ -556,7 +562,7 @@ public class AIAssistantPanel {
             AIChatMessage assistantDraft = AIChatMessage.now("Assistant", "", "assistant");
             draftMessage = assistantDraft;
             beginStreaming(assistantDraft);
-            refreshChatArea();
+            renderDraftMessage();
             
             // Call the service
             coordinator.askQuestion(
@@ -569,20 +575,27 @@ public class AIAssistantPanel {
                 () -> javax.swing.SwingUtilities.invokeLater(() -> {
                     completeStreaming(() -> {
                         if (assistantDraft.getContent().isEmpty()) {
+                            if (markdownRenderer != null) {
+                                markdownRenderer.discardDraft();
+                            }
                             draftMessage = null;
                         } else {
                             finalizedMessages.add(assistantDraft);
+                            if (markdownRenderer != null) {
+                                markdownRenderer.commitDraft();
+                            }
                             draftMessage = null;
                         }
-                        refreshChatArea();
                         setProcessing(false);
                     });
                 }),
                 // Callback 3: Handle Errors
                 (errorMessage) -> javax.swing.SwingUtilities.invokeLater(() -> {
+                    if (markdownRenderer != null) {
+                        markdownRenderer.discardDraft();
+                    }
                     resetStreamingState();
                     draftMessage = null;
-                    refreshChatArea();
                     addMessage("System Error", errorMessage, "error");
                     setProcessing(false);
                 })
@@ -598,6 +611,62 @@ public class AIAssistantPanel {
         sendButton.setEnabled(!processing);
         inputArea.setEnabled(!processing);
         dialog.setCursor(processing ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : Cursor.getDefaultCursor());
+    }
+
+    private void appendFinalizedMessage(AIChatMessage message) {
+        if (chatScrollPane == null) {
+            refreshChatArea();
+            return;
+        }
+
+        JScrollBar verticalBar = chatScrollPane.getVerticalScrollBar();
+        boolean shouldAutoFollow = shouldAutoFollow(verticalBar);
+        int previousScrollValue = verticalBar != null ? verticalBar.getValue() : -1;
+
+        markdownRenderer.appendMessage(message);
+        restoreScrollAfterIncrementalUpdate(shouldAutoFollow, previousScrollValue);
+    }
+
+    private void renderDraftMessage() {
+        if (draftMessage == null) {
+            return;
+        }
+
+        if (chatScrollPane == null || markdownRenderer == null) {
+            refreshChatArea();
+            return;
+        }
+
+        JScrollBar verticalBar = chatScrollPane.getVerticalScrollBar();
+        boolean shouldAutoFollow = shouldAutoFollow(verticalBar);
+        int previousScrollValue = verticalBar != null ? verticalBar.getValue() : -1;
+
+        markdownRenderer.renderDraft(draftMessage);
+        restoreScrollAfterIncrementalUpdate(shouldAutoFollow, previousScrollValue);
+    }
+
+    private void restoreScrollAfterIncrementalUpdate(boolean shouldAutoFollow, int previousScrollValue) {
+        if (chatScrollPane == null) {
+            return;
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            if (chatScrollPane == null) {
+                return;
+            }
+
+            JScrollBar bar = chatScrollPane.getVerticalScrollBar();
+            if (shouldAutoFollow) {
+                bar.setValue(bar.getMaximum());
+                chatArea.setCaretPosition(chatArea.getDocument().getLength());
+                return;
+            }
+
+            if (previousScrollValue >= 0) {
+                int maxScroll = Math.max(0, bar.getMaximum() - bar.getVisibleAmount());
+                bar.setValue(Math.min(previousScrollValue, maxScroll));
+            }
+        });
     }
 
     public void toggleVisibility() {

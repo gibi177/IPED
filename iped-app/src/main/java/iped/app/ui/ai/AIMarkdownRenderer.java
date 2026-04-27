@@ -24,6 +24,7 @@ public class AIMarkdownRenderer {
     private final JTextPane chatArea;
     private final StyledDocument chatDocument;
     private final Map<String, Style> chatStyles = new HashMap<>();
+    private int draftStartOffset = -1;
 
     public AIMarkdownRenderer(JTextPane chatArea) {
         this.chatArea = chatArea;
@@ -44,6 +45,7 @@ public class AIMarkdownRenderer {
      */
     public void renderMessages(List<AIChatMessage> messages) {
         try {
+            draftStartOffset = -1;
             chatDocument.remove(0, chatDocument.getLength());
             for (AIChatMessage message : messages) {
                 appendMessageToDocument(message);
@@ -51,6 +53,61 @@ public class AIMarkdownRenderer {
         } catch (BadLocationException e) {
             System.err.println("Error rendering chat: " + e.getMessage());
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Appends a finalized message to the end of the current document.
+     */
+    public void appendMessage(AIChatMessage message) {
+        try {
+            appendMessageToDocument(message);
+        } catch (BadLocationException e) {
+            System.err.println("Error appending chat message: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Replaces only the streaming draft at the end of the document.
+     */
+    public void renderDraft(AIChatMessage message) {
+        try {
+            if (draftStartOffset < 0) {
+                draftStartOffset = chatDocument.getLength();
+            } else {
+                chatDocument.remove(draftStartOffset, chatDocument.getLength() - draftStartOffset);
+            }
+
+            appendMessageToDocument(message);
+        } catch (BadLocationException e) {
+            System.err.println("Error rendering draft chat: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Marks the current draft as committed, keeping the rendered content in place.
+     */
+    public void commitDraft() {
+        draftStartOffset = -1;
+    }
+
+    /**
+     * Removes the current draft from the document.
+     */
+    public void discardDraft() {
+        if (draftStartOffset < 0) {
+            return;
+        }
+
+        try {
+            chatDocument.remove(draftStartOffset, chatDocument.getLength() - draftStartOffset);
+        } catch (BadLocationException e) {
+            System.err.println("Error discarding draft chat: " + e.getMessage());
+            e.printStackTrace();
+        } finally {
+            draftStartOffset = -1;
         }
     }
 
