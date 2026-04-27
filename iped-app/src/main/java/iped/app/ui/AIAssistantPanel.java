@@ -3,18 +3,25 @@ package iped.app.ui;
 import java.awt.*;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.text.SimpleDateFormat;
-import java.util.Date;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
+import javax.swing.text.BadLocationException;
+import javax.swing.text.DefaultStyledDocument;
+import javax.swing.text.StyledDocument;
 
+import iped.app.ui.ai.AIChatCoordinator;
+import iped.app.ui.ai.AIChatMessage;
 import iped.app.ui.ai.AIContextManager;
 import iped.app.ui.ai.ContextChangeEvent;
 import iped.app.ui.ai.ContextChangeListener;
 import iped.app.ui.ai.ContextFileEntry;
+import iped.app.ui.ai.AIMarkdownRenderer;
 import iped.app.ui.ai.backend.AIBackendClient;
 import iped.app.ui.ai.backend.AIBackendConfig;
 import iped.data.IItem;
@@ -35,17 +42,29 @@ public class AIAssistantPanel {
     private static final int VERTICAL_OFFSET = 120;
     private static final double HEIGHT_PERCENTAGE = 0.8;
     private static final int PANEL_WIDTH = 550;
+    private static final int STREAM_APPEND_DELAY_MS = 30;
+    private static final int AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 24;
+    private static final Pattern STREAM_PART_PATTERN = Pattern.compile("\\S+|\\s+");
 
     // Main UI components
     private JDialog dialog;
-    private JTextArea chatArea;
+    private JTextPane chatArea;
+    private JScrollPane chatScrollPane;
+    private StyledDocument chatDocument;
     private JTextArea inputArea;
     private JButton sendButton;
     private JLabel statusLabel;
     private JProgressBar progressBar;
+    private AIMarkdownRenderer markdownRenderer;
+    private final List<AIChatMessage> finalizedMessages = new ArrayList<>();
+    private AIChatMessage draftMessage;
+    private final List<String> streamQueue = new ArrayList<>();
+    private Timer streamTimer;
+    private AIChatMessage streamingMessage;
+    private Runnable streamDrainAction;
 
-    // Coordinator (The Controller that handles business logic and threading)
-    private iped.app.ui.ai.AIChatCoordinator coordinator;
+    // Service layer that handles business logic and threading
+    private AIChatCoordinator coordinator;
 
     // Context-related UI components
     private JPanel contextPanel;
@@ -69,11 +88,6 @@ public class AIAssistantPanel {
      * Private constructor: This is the application's wiring hub.
      */
     private AIAssistantPanel() {
-        // Initialize the Controller. 
-        this.coordinator = new iped.app.ui.ai.AIChatCoordinator(
-            new AIBackendClient(AIBackendConfig.loadFromSystemProperties())
-        );
-        
         createUI();
 
         // Subscribe to the State Manager.
@@ -102,16 +116,25 @@ public class AIAssistantPanel {
         centerPanel.add(createContextSection(), BorderLayout.NORTH);
 
         // Chat display area setup
-        chatArea = new JTextArea();
+        chatArea = new JTextPane();
         chatArea.setEditable(false);
-        chatArea.setLineWrap(true);
-        chatArea.setWrapStyleWord(true);
-        chatArea.setFont(new Font("SansSerif", Font.PLAIN, 12));
-        chatArea.setBackground(new Color(245, 245, 245));
+        chatArea.setBackground(new Color(0xf5, 0xf5, 0xf5));
+        chatArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
+        chatDocument = new DefaultStyledDocument();
+        chatArea.setDocument(chatDocument);
+        try {
+            markdownRenderer = new AIMarkdownRenderer(chatArea);
+            chatDocument = markdownRenderer.getDocument();
+        } catch (Throwable t) {
+            System.err.println("Failed to initialize markdown renderer: " + t.getMessage());
+            t.printStackTrace();
+            markdownRenderer = null;
+        }
+        refreshChatArea();
         
-        JScrollPane chatScroll = new JScrollPane(chatArea);
-        chatScroll.setPreferredSize(new Dimension(PANEL_WIDTH, 400));
-        centerPanel.add(chatScroll, BorderLayout.CENTER);
+        chatScrollPane = new JScrollPane(chatArea);
+        chatScrollPane.setPreferredSize(new Dimension(PANEL_WIDTH, 400));
+        centerPanel.add(chatScrollPane, BorderLayout.CENTER);
 
         JPanel tasksPanel = createTasksPanel();
         centerPanel.add(tasksPanel, BorderLayout.EAST);
@@ -290,12 +313,104 @@ public class AIAssistantPanel {
         bottomPanel.add(sendButton, BorderLayout.EAST);
 
         return bottomPanel;
+    } 
+
+    private void refreshChatArea() {
+        JScrollBar verticalBar = chatScrollPane != null ? chatScrollPane.getVerticalScrollBar() : null;
+        boolean shouldAutoFollow = shouldAutoFollow(verticalBar);
+        int previousScrollValue = verticalBar != null ? verticalBar.getValue() : -1;
+
+        if (markdownRenderer != null) {
+            markdownRenderer.renderMessages(buildRenderableMessages());
+        } else {
+            renderMessagesFallback();
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            if (chatScrollPane == null) {
+                return;
+            }
+
+            JScrollBar bar = chatScrollPane.getVerticalScrollBar();
+            if (shouldAutoFollow) {
+                bar.setValue(bar.getMaximum());
+                chatArea.setCaretPosition(chatArea.getDocument().getLength());
+                return;
+            }
+
+            if (previousScrollValue >= 0) {
+                int maxScroll = Math.max(0, bar.getMaximum() - bar.getVisibleAmount());
+                bar.setValue(Math.min(previousScrollValue, maxScroll));
+            }
+        });
+    }
+
+    private boolean shouldAutoFollow(JScrollBar verticalBar) {
+        if (verticalBar == null) {
+            return true;
+        }
+
+        int distanceToBottom = verticalBar.getMaximum() - (verticalBar.getValue() + verticalBar.getVisibleAmount());
+        return distanceToBottom <= AUTO_SCROLL_BOTTOM_THRESHOLD_PX;
+    }
+
+    private void renderMessagesFallback() {
+        try {
+            chatDocument.remove(0, chatDocument.getLength());
+            for (AIChatMessage message : buildRenderableMessages()) {
+                chatDocument.insertString(
+                    chatDocument.getLength(),
+                    "[" + message.getTime() + "] " + message.getSender() + "\n" + message.getContent() + "\n\n",
+                    null
+                );
+            }
+        } catch (BadLocationException e) {
+            System.err.println("Error rendering fallback chat: " + e.getMessage());
+            e.printStackTrace();
+        }
+    }
+
+    private boolean ensureChatServiceInitialized() {
+        if (coordinator != null) {
+            return true;
+        }
+
+        try {
+            coordinator = new AIChatCoordinator(new AIBackendClient(AIBackendConfig.loadFromSystemProperties()));
+            return true;
+        } catch (Throwable t) {
+            addMessage("System Error", "Failed to initialize AI backend: " + t.getMessage(), "error");
+            System.err.println("Failed to initialize AI backend: " + t.getMessage());
+            t.printStackTrace();
+            return false;
+        }
+    }
+
+    private void addMessage(String sender, String message, String type) {
+        AIChatMessage chatMessage = AIChatMessage.now(sender, message, type);
+        finalizedMessages.add(chatMessage);
+
+        if (markdownRenderer != null) {
+            appendFinalizedMessage(chatMessage);
+        } else {
+            refreshChatArea();
+        }
+    }
+
+    private List<AIChatMessage> buildRenderableMessages() {
+        List<AIChatMessage> renderableMessages = new ArrayList<>(finalizedMessages);
+        if (draftMessage != null) {
+            renderableMessages.add(draftMessage);
+        }
+        return renderableMessages;
+    }
+
+    private void addMessage(String sender, String message) {
+        addMessage(sender, message, "system");
     }
 
     private void positionDialog() {
-        GraphicsConfiguration gc = GraphicsEnvironment.getLocalGraphicsEnvironment()
-                .getDefaultScreenDevice().getDefaultConfiguration();
-        Rectangle screenBounds = gc.getBounds();
+        Rectangle screenBounds = resolvePreferredScreenBounds();
 
         int height = (int) (screenBounds.height * HEIGHT_PERCENTAGE);
         dialog.setSize(PANEL_WIDTH + 150, height);
@@ -310,42 +425,182 @@ public class AIAssistantPanel {
         dialog.setLocation(x, y);
     }
 
+    private Rectangle resolvePreferredScreenBounds() {
+        Window owner = App.get();
+        if (owner != null) {
+            GraphicsConfiguration ownerGc = owner.getGraphicsConfiguration();
+            if (ownerGc != null) {
+                return ownerGc.getBounds();
+            }
+        }
+
+        return GraphicsEnvironment.getLocalGraphicsEnvironment()
+                .getDefaultScreenDevice().getDefaultConfiguration().getBounds();
+    }
+
+    private Rectangle getVirtualScreenBounds() {
+        Rectangle virtualBounds = new Rectangle();
+        for (GraphicsDevice device : GraphicsEnvironment.getLocalGraphicsEnvironment().getScreenDevices()) {
+            virtualBounds = virtualBounds.union(device.getDefaultConfiguration().getBounds());
+        }
+        return virtualBounds;
+    }
+
+    private void ensureVisibleOnScreen() {
+        Rectangle virtualBounds = getVirtualScreenBounds();
+        Rectangle currentBounds = dialog.getBounds();
+        if (!virtualBounds.intersects(currentBounds)) {
+            positionDialog();
+        }
+    }
+
+    private void showDialogSafely() {
+        ensureVisibleOnScreen();
+        if (!dialog.isVisible()) {
+            dialog.setVisible(true);
+        }
+        dialog.toFront();
+        dialog.requestFocus();
+        inputArea.requestFocusInWindow();
+    }
+
+    private void beginStreaming(AIChatMessage message) {
+        streamingMessage = message;
+        streamQueue.clear();
+        streamDrainAction = null;
+        ensureStreamTimer();
+    }
+
+    private void ensureStreamTimer() {
+        if (streamTimer != null) {
+            return;
+        }
+
+        streamTimer = new Timer(STREAM_APPEND_DELAY_MS, e -> onStreamTimerTick());
+    }
+
+    private void enqueueStreamToken(String token) {
+        if (streamingMessage == null || token == null || token.isEmpty()) {
+            return;
+        }
+
+        Matcher matcher = STREAM_PART_PATTERN.matcher(token);
+        while (matcher.find()) {
+            streamQueue.add(matcher.group());
+        }
+
+        if (!streamQueue.isEmpty() && !streamTimer.isRunning()) {
+            streamTimer.start();
+        }
+    }
+
+    private void onStreamTimerTick() {
+        if (streamingMessage == null) {
+            streamTimer.stop();
+            return;
+        }
+
+        if (streamQueue.isEmpty()) {
+            streamTimer.stop();
+            runPendingDrainAction();
+            return;
+        }
+
+        String part = streamQueue.remove(0);
+        streamingMessage.appendContent(part);
+        renderDraftMessage();
+    }
+
+    private void completeStreaming(Runnable onDrained) {
+        if (streamQueue.isEmpty() && (streamTimer == null || !streamTimer.isRunning())) {
+            onDrained.run();
+            resetStreamingState();
+        } else {
+            streamDrainAction = () -> {
+                onDrained.run();
+                resetStreamingState();
+            };
+        }
+    }
+
+    private void runPendingDrainAction() {
+        if (streamDrainAction == null) {
+            return;
+        }
+
+        Runnable action = streamDrainAction;
+        streamDrainAction = null;
+        action.run();
+    }
+
+    private void resetStreamingState() {
+        if (streamTimer != null) {
+            streamTimer.stop();
+        }
+        streamQueue.clear();
+        streamDrainAction = null;
+        streamingMessage = null;
+    }
+
     /**
      * The main execution block linking user intent to the background Coordinator.
      */
     private void handleSendAction() {
         String text = inputArea.getText().trim();
         if (!text.isEmpty()) {
+            if (!ensureChatServiceInitialized()) {
+                return;
+            }
+
             // Print user message immediately
-            addMessage("User", text);
+            addMessage("You", text, "user");
             inputArea.setText("");
             
             // Lock the UI
             setProcessing(true);
             
-            // Call the coordinator
+            AIChatMessage assistantDraft = AIChatMessage.now("Assistant", "", "assistant");
+            draftMessage = assistantDraft;
+            beginStreaming(assistantDraft);
+            renderDraftMessage();
+            
+            // Call the service
             coordinator.askQuestion(
                 text, 
-                // Callback 1: Stream chunks to the chat area safely on the UI thread
+                // Callback 1: Append tokens to the live assistant draft
                 (token) -> javax.swing.SwingUtilities.invokeLater(() -> {
-                    chatArea.append(token);
-                    chatArea.setCaretPosition(chatArea.getDocument().getLength());
+                    enqueueStreamToken(token);
                 }),
-                // Callback 2: Unlock the UI when done
-                () -> javax.swing.SwingUtilities.invokeLater(() -> setProcessing(false)),
+                // Callback 2: Keep the completed draft visible and unlock the UI
+                () -> javax.swing.SwingUtilities.invokeLater(() -> {
+                    completeStreaming(() -> {
+                        if (assistantDraft.getContent().isEmpty()) {
+                            if (markdownRenderer != null) {
+                                markdownRenderer.discardDraft();
+                            }
+                            draftMessage = null;
+                        } else {
+                            finalizedMessages.add(assistantDraft);
+                            if (markdownRenderer != null) {
+                                markdownRenderer.commitDraft();
+                            }
+                            draftMessage = null;
+                        }
+                        setProcessing(false);
+                    });
+                }),
                 // Callback 3: Handle Errors
                 (errorMessage) -> javax.swing.SwingUtilities.invokeLater(() -> {
-                    addMessage("System Error", errorMessage);
+                    if (markdownRenderer != null) {
+                        markdownRenderer.discardDraft();
+                    }
+                    resetStreamingState();
+                    draftMessage = null;
+                    addMessage("System Error", errorMessage, "error");
                     setProcessing(false);
                 })
             );
         }
-    }
-
-    private void addMessage(String sender, String message) {
-        String time = new SimpleDateFormat("HH:mm").format(new Date());
-        chatArea.append(String.format("[%s] %s: %s\n\n", time, sender, message));
-        chatArea.setCaretPosition(chatArea.getDocument().getLength());
     }
 
     /**
@@ -358,19 +613,84 @@ public class AIAssistantPanel {
         dialog.setCursor(processing ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : Cursor.getDefaultCursor());
     }
 
+    private void appendFinalizedMessage(AIChatMessage message) {
+        if (chatScrollPane == null) {
+            refreshChatArea();
+            return;
+        }
+
+        JScrollBar verticalBar = chatScrollPane.getVerticalScrollBar();
+        boolean shouldAutoFollow = shouldAutoFollow(verticalBar);
+        int previousScrollValue = verticalBar != null ? verticalBar.getValue() : -1;
+
+        markdownRenderer.appendMessage(message);
+        restoreScrollAfterIncrementalUpdate(shouldAutoFollow, previousScrollValue);
+    }
+
+    private void renderDraftMessage() {
+        if (draftMessage == null) {
+            return;
+        }
+
+        if (chatScrollPane == null || markdownRenderer == null) {
+            refreshChatArea();
+            return;
+        }
+
+        JScrollBar verticalBar = chatScrollPane.getVerticalScrollBar();
+        boolean shouldAutoFollow = shouldAutoFollow(verticalBar);
+        int previousScrollValue = verticalBar != null ? verticalBar.getValue() : -1;
+
+        markdownRenderer.renderDraft(draftMessage);
+        restoreScrollAfterIncrementalUpdate(shouldAutoFollow, previousScrollValue);
+    }
+
+    private void restoreScrollAfterIncrementalUpdate(boolean shouldAutoFollow, int previousScrollValue) {
+        if (chatScrollPane == null) {
+            return;
+        }
+
+        SwingUtilities.invokeLater(() -> {
+            if (chatScrollPane == null) {
+                return;
+            }
+
+            JScrollBar bar = chatScrollPane.getVerticalScrollBar();
+            if (shouldAutoFollow) {
+                bar.setValue(bar.getMaximum());
+                chatArea.setCaretPosition(chatArea.getDocument().getLength());
+                return;
+            }
+
+            if (previousScrollValue >= 0) {
+                int maxScroll = Math.max(0, bar.getMaximum() - bar.getVisibleAmount());
+                bar.setValue(Math.min(previousScrollValue, maxScroll));
+            }
+        });
+    }
+
     public void toggleVisibility() {
-        if (dialog.isVisible()) {
-            dialog.setVisible(false);
+        Runnable action = () -> {
+            if (dialog.isVisible()) {
+                dialog.setVisible(false);
+            } else {
+                showDialogSafely();
+            }
+        };
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            action.run();
         } else {
-            dialog.setVisible(true);
-            inputArea.requestFocusInWindow();
+            SwingUtilities.invokeLater(action);
         }
     }
 
     public void showPanel() {
-        if (!dialog.isVisible()) {
-            dialog.setVisible(true);
+        Runnable action = this::showDialogSafely;
+        if (SwingUtilities.isEventDispatchThread()) {
+            action.run();
+        } else {
+            SwingUtilities.invokeLater(action);
         }
-        inputArea.requestFocusInWindow();
     }
 }
