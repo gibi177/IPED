@@ -69,11 +69,25 @@ public class AIAssistantPanel {
 
     // Context-related UI components
     private JPanel contextPanel;
-    private JList<ContextFileEntry> contextList;
-    private DefaultListModel<ContextFileEntry> contextListModel;
+    private JList<Object> contextList;
+    private DefaultListModel<Object> contextListModel;
     private JLabel contextEmptyLabel;
     private JButton clearContextButton;
     private TitledBorder contextBorder;
+
+    private static final class ContextSummaryRow {
+        private final String text;
+
+        private ContextSummaryRow(String text) {
+            this.text = text;
+        }
+
+        @Override
+        public String toString() {
+            return text;
+        }
+    }
+
 
     // Singleton instance ensures only one floating panel exists at a time
     private static AIAssistantPanel instance;
@@ -183,10 +197,20 @@ public class AIAssistantPanel {
         contextList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
             JLabel label = (JLabel) new DefaultListCellRenderer()
                     .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+
+            if (value instanceof ContextSummaryRow) {
+                ContextSummaryRow summary = (ContextSummaryRow) value;
+                label.setText(summary.toString());
+                label.setForeground(Color.DARK_GRAY);
+                label.setFont(label.getFont().deriveFont(Font.ITALIC));
+                label.setToolTipText(summary.toString());
+                return label;
+            }
+
             if (value instanceof ContextFileEntry) {
                 ContextFileEntry entry = (ContextFileEntry) value;
                 if (entry.isValidForContext()) {
-                    label.setText(entry.getDisplayLabel());
+                    label.setText(entry.getFileName());
                     label.setToolTipText(entry.getFullPath());
                 } else {
                     String reason = entry.getValidationReason() != null ? entry.getValidationReason() : "Rejected item.";
@@ -195,6 +219,7 @@ public class AIAssistantPanel {
                     label.setForeground(new Color(180, 0, 0));
                 }
             }
+
             return label;
         });
 
@@ -247,8 +272,16 @@ public class AIAssistantPanel {
             contextEmptyLabel.setVisible(false);
             contextList.setVisible(true);
             clearContextButton.setEnabled(true);
-            for (ContextFileEntry entry : entries) {
-                contextListModel.addElement(entry);
+
+            int visibleCount = Math.min(5, entries.size());
+            for (int i = 0; i < visibleCount; i++) {
+                contextListModel.addElement(entries.get(i));
+            }
+
+            if (entries.size() > 5) {
+                int hiddenCount = entries.size() - 5;
+                String summaryText = "+ " + hiddenCount + " more items (" + validFiles.size() + " valid, " + invalidCount + " rejected)";
+                contextListModel.addElement(new ContextSummaryRow(summaryText));
             }
         }
 
@@ -257,6 +290,7 @@ public class AIAssistantPanel {
         } else {
             contextBorder.setTitle("Added Context (" + validFiles.size() + " valid)");
         }
+
         contextPanel.repaint();
     }
 

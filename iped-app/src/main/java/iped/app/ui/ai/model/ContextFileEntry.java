@@ -189,33 +189,15 @@ public class ContextFileEntry {
         return item.getPath() != null ? item.getPath() : "";
     }
     
-    /**
-     * Returns the label used for display in UI lists.
-     * Prefers showing the AI summary if available, otherwise shows file name.
-     *
-     * @return display label
-     */
-    public String getDisplayLabel() {
-        if (hasSummary()) {
-            // Truncate to first line and limit length for UI display
-            String line = summary.split("\n")[0];
-            if (line.length() > 80) {
-                return line.substring(0, 77) + "...";
-            }
-            return line;
-        }
-        return getFileName();
-    }
-    
     @Override
     public String toString() {
         if (!validForContext && validationReason != null && !validationReason.trim().isEmpty()) {
             return getFileName() + " - " + validationReason;
         }
         if (hasSummary()) {
-            return getDisplayLabel() + " [Summary]";
+            return getFileName() + " [Summary]";
         }
-        return getDisplayLabel();
+        return getFileName();
     }
     
     @Override
