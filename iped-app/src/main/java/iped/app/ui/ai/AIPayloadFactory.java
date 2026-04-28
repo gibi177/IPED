@@ -48,13 +48,22 @@ public class AIPayloadFactory {
             }
 
             // Map IPED data to backend variables
-            String chatId = String.valueOf(entry.getItem().getId());
+            IItem item = entry.getItem();
+
+            // Get the globally unique hash directly from the item
+            String chatId = item.getHash();
+            
+            // Fallback to internal integer ID if the hash is missing 
+            if (chatId == null || chatId.trim().isEmpty()) {
+                chatId = String.valueOf(item.getId());
+            }
+            
             String chatName = entry.getFileName();
             
             // Adapter Pattern: The Python backend expects lists for summaries and IDs
             // Since IPED joined them into one block, send a list of size 1
-            List<String> summariesList = extractList(entry.getItem(), ExtraProperties.SUMMARY);
-            List<String> summaryIdsList = extractList(entry.getItem(), ExtraProperties.CHUNK_IDS);
+            List<String> summariesList = extractList(item, ExtraProperties.SUMMARY);
+            List<String> summaryIdsList = extractList(item, ExtraProperties.CHUNK_IDS);
 
             // If the extraction fails, fallback to the UI summary
             if (summariesList.isEmpty()) {
