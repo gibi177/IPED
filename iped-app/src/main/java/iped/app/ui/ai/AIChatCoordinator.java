@@ -1,9 +1,12 @@
 package iped.app.ui.ai;
 
-import iped.app.ui.ai.backend.AIBackendException;
 import iped.app.ui.ai.backend.AIBackendService;
 import iped.app.ui.ai.backend.AIInitMultiChatRequest;
 import iped.app.ui.ai.backend.AIStreamChatRequest;
+import iped.app.ui.ai.util.AIWhatsappChatExtractor;
+import iped.app.ui.ai.util.AIPayloadFactory;
+import iped.app.ui.ai.model.ContextFileEntry;
+import iped.app.ui.ai.context.AIContextManager;
 import iped.data.IItem;
 
 import java.util.ArrayList;

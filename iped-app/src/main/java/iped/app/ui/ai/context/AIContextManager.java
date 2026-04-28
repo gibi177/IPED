@@ -1,4 +1,4 @@
-package iped.app.ui.ai;
+package iped.app.ui.ai.context;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -6,6 +6,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import javax.swing.SwingUtilities;
 import javax.swing.event.EventListenerList;
 
+import iped.app.ui.ai.model.ContextFileEntry;
 import iped.data.IItem;
 import iped.engine.lucene.analysis.CategoryTokenizer;
 import iped.parsers.standard.StandardParser;

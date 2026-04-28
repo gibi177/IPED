@@ -1,4 +1,4 @@
-package iped.app.ui.ai;
+package iped.app.ui.ai.context;
 
 import java.util.EventListener;
 

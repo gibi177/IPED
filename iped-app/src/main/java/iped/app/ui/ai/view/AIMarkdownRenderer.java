@@ -1,4 +1,4 @@
-package iped.app.ui.ai;
+package iped.app.ui.ai.view;
 
 import java.util.HashMap;
 import java.util.List;
@@ -13,6 +13,8 @@ import javax.swing.text.SimpleAttributeSet;
 import javax.swing.text.Style;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
+
+import iped.app.ui.ai.model.AIChatMessage;
 
 /**
  * Renders assistant chat messages with lightweight Markdown support.

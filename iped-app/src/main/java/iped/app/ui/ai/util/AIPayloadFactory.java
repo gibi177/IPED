@@ -1,5 +1,6 @@
-package iped.app.ui.ai;
+package iped.app.ui.ai.util;
 
+import iped.app.ui.ai.model.ContextFileEntry;
 import iped.app.ui.ai.backend.AIInitMultiChatRequest;
 import iped.app.ui.ai.backend.AIInitMultiChatRequest.SummarizedChat;
 import iped.data.IItem;

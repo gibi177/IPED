@@ -1,4 +1,4 @@
-package iped.app.ui;
+package iped.app.ui.ai.view;
 
 import java.awt.*;
 import java.awt.event.KeyAdapter;
@@ -16,14 +16,15 @@ import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.StyledDocument;
 
 import iped.app.ui.ai.AIChatCoordinator;
-import iped.app.ui.ai.AIChatMessage;
-import iped.app.ui.ai.AIContextManager;
-import iped.app.ui.ai.ContextChangeEvent;
-import iped.app.ui.ai.ContextChangeListener;
-import iped.app.ui.ai.ContextFileEntry;
-import iped.app.ui.ai.AIMarkdownRenderer;
+import iped.app.ui.ai.model.AIChatMessage;
+import iped.app.ui.ai.context.AIContextManager;
+import iped.app.ui.ai.context.ContextChangeEvent;
+import iped.app.ui.ai.context.ContextChangeListener;
+import iped.app.ui.ai.model.ContextFileEntry;
 import iped.app.ui.ai.backend.AIBackendClient;
 import iped.app.ui.ai.backend.AIBackendConfig;
+import iped.app.ui.App;
+import iped.app.ui.Messages;
 import iped.data.IItem;
 
 /**

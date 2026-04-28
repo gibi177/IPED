@@ -1,4 +1,4 @@
-package iped.app.ui.ai;
+package iped.app.ui.ai.model;
 
 import java.text.SimpleDateFormat;
 import java.util.Date;
