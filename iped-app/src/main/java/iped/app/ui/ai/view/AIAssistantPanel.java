@@ -1,6 +1,8 @@
 package iped.app.ui.ai.view;
 
 import java.awt.*;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
@@ -26,6 +28,11 @@ import iped.app.ui.ai.backend.AIBackendConfig;
 import iped.app.ui.App;
 import iped.app.ui.Messages;
 import iped.data.IItem;
+import iped.engine.search.IPEDSearcher;
+import iped.engine.search.MultiSearchResult;
+import iped.data.IItemId;
+import iped.app.ui.FileProcessor;
+import iped.properties.ExtraProperties;
 
 /**
  * AI Assistant floating panel UI layer for IPED.
@@ -140,6 +147,7 @@ public class AIAssistantPanel {
         try {
             markdownRenderer = new AIMarkdownRenderer(chatArea);
             chatDocument = markdownRenderer.getDocument();
+            installTokenClickHandler();
         } catch (Throwable t) {
             System.err.println("Failed to initialize markdown renderer: " + t.getMessage());
             t.printStackTrace();
@@ -162,6 +170,105 @@ public class AIAssistantPanel {
         positionDialog();
 
         addMessage("System", "AI Assistant ready. Connected to local Backend server.\nRight-click an HTML WhatsApp chat export to add it to the context, then type your question.");
+    }
+
+    private void installTokenClickHandler() {
+        chatArea.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) {
+                    return;
+                }
+
+                int offset = chatArea.viewToModel2D(e.getPoint());
+                if (offset < 0 || chatDocument == null) {
+                    return;
+                }
+
+                javax.swing.text.Element element = chatDocument.getCharacterElement(offset);
+                javax.swing.text.AttributeSet attributes = element.getAttributes();
+                Object tokenFlag = attributes.getAttribute(AIMarkdownRenderer.TOKEN_ATTRIBUTE);
+                if (!Boolean.TRUE.equals(tokenFlag)) {
+                    return;
+                }
+
+                int start = element.getStartOffset();
+                int end = element.getEndOffset();
+                chatArea.setSelectionStart(start);
+                chatArea.setSelectionEnd(Math.max(start, end - 1));
+
+                Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
+                Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
+                navigateToItem(String.valueOf(hash), String.valueOf(chunkId));
+            }
+        });
+    }
+
+    private void navigateToItem(String hash, String chunkId) {
+        if (hash == null || hash.isEmpty() || App.get() == null || App.get().appCase == null) {
+            return;
+        }
+
+        new Thread(() -> {
+            try {
+                IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "hash:" + hash);
+                MultiSearchResult result = searcher.multiSearch();
+                if (result == null || result.getLength() == 0) {
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dialog,
+                            "Item not found for hash: " + hash, "Not found", JOptionPane.INFORMATION_MESSAGE));
+                    return;
+                }
+
+                IItemId itemId = result.getItem(0);
+                int luceneId = App.get().appCase.getLuceneId(itemId);
+                
+                // Prepare viewer to scroll to the specific message/chunk position
+                // chunkId corresponds to parentViewPosition in chat metadata
+                if (chunkId != null && !chunkId.isEmpty()) {
+                    try {
+                        App.get().getViewerController().getHtmlLinkViewer().setElementIDToScroll(chunkId);
+                    } catch (Exception e) {
+                        // Viewer might not be HTML or element not available; continue anyway
+                    }
+                }
+                
+                FileProcessor fp = new FileProcessor(luceneId, true);
+                fp.execute();
+                
+                // After opening the file, select it in the results table
+                SwingUtilities.invokeLater(() -> selectItemInResultsTable(luceneId));
+
+            } catch (Exception ex) {
+                ex.printStackTrace();
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dialog,
+                        "Error opening item: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
+            }
+        }).start();
+    }
+    
+    private void selectItemInResultsTable(int luceneId) {
+        if (App.get() == null || App.get().getResults() == null || App.get().getResultsTable() == null) {
+            return;
+        }
+        
+        // Search for the item with the given luceneId in the results
+        for (int i = 0; i < App.get().getResults().getLength(); i++) {
+            try {
+                IItemId item = App.get().getResults().getItem(i);
+                if (App.get().appCase.getLuceneId(item) == luceneId) {
+                    // Found it! Select this row in the results table
+                    int viewIndex = App.get().getResultsTable().convertRowIndexToView(i);
+                    App.get().getResultsTable().setRowSelectionInterval(viewIndex, viewIndex);
+                    
+                    // Scroll to make it visible
+                    java.awt.Rectangle cellRect = App.get().getResultsTable().getCellRect(viewIndex, 0, false);
+                    App.get().getResultsTable().scrollRectToVisible(cellRect);
+                    break;
+                }
+            } catch (Exception e) {
+                // Continue searching if there's an error with this item
+            }
+        }
     }
 
     private JPanel createHeaderPanel() {

@@ -21,6 +21,10 @@ import iped.app.ui.ai.model.AIChatMessage;
  */
 public class AIMarkdownRenderer {
 
+    public static final String TOKEN_ATTRIBUTE = "ai-token";
+    public static final String TOKEN_HASH_ATTRIBUTE = "ai-token-hash";
+    public static final String TOKEN_CHUNK_ID_ATTRIBUTE = "ai-token-chunk-id";
+
     private static final Logger LOGGER = LoggerFactory.getLogger(AIMarkdownRenderer.class);
 
     private final JTextPane chatArea;
@@ -180,6 +184,13 @@ public class AIMarkdownRenderer {
         Style blockquote = chatArea.addStyle("blockquote", base);
         StyleConstants.setForeground(blockquote, new java.awt.Color(0x55, 0x55, 0x55));
         chatStyles.put("blockquote", blockquote);
+
+        Style token = chatArea.addStyle("token", base);
+        StyleConstants.setForeground(token, new java.awt.Color(0x0b, 0x57, 0xd0));
+        StyleConstants.setUnderline(token, true);
+        StyleConstants.setBold(token, true);
+        StyleConstants.setBackground(token, new java.awt.Color(0xe8, 0xf0, 0xfe));
+        chatStyles.put("token", token);
     }
 
     /**
@@ -282,6 +293,8 @@ public class AIMarkdownRenderer {
                 }
                 continue;
             }
+
+            
 
             if (renderStandaloneItalicLine(lineToRender, baseStyle)) {
                 debugLineType("standalone-italic", lineToRender, inUnderscoreItalicBlock);
@@ -448,10 +461,11 @@ public class AIMarkdownRenderer {
     private void appendInlineMarkdown(String text, AttributeSet baseStyle) throws BadLocationException {
         int index = 0;
         while (index < text.length()) {
+            int tokenStart = text.indexOf("<<", index);
             int boldStart = text.indexOf("**", index);
             int italicStart = findItalicStart(text, index);
 
-            int next = smallestPositive(boldStart, italicStart);
+            int next = smallestPositive(tokenStart, boldStart, italicStart);
             if (next == -1) {
                 chatDocument.insertString(chatDocument.getLength(), text.substring(index), baseStyle);
                 return;
@@ -459,6 +473,23 @@ public class AIMarkdownRenderer {
 
             if (next > index) {
                 chatDocument.insertString(chatDocument.getLength(), text.substring(index, next), baseStyle);
+            }
+
+            if (next == tokenStart) {
+                int end = text.indexOf(">>", tokenStart + 2);
+                if (end > tokenStart + 2) {
+                    String tokenText = text.substring(tokenStart + 2, end);
+                    String[] tokenParts = tokenText.split("-", 2);
+                    if (tokenParts.length == 2 && !tokenParts[0].isBlank() && !tokenParts[1].isBlank()) {
+                        appendToken(text.substring(tokenStart, end + 2), tokenParts[0], tokenParts[1], baseStyle);
+                        index = end + 2;
+                        continue;
+                    }
+                }
+
+                chatDocument.insertString(chatDocument.getLength(), "<<", baseStyle);
+                index = tokenStart + 2;
+                continue;
             }
 
             if (next == boldStart) {
@@ -562,5 +593,17 @@ public class AIMarkdownRenderer {
             }
         }
         return result;
+    }
+
+    /**
+     * Writes a chunk token using a dedicated clickable style and embedded metadata.
+     */
+    private void appendToken(String visibleText, String hash, String chunkId, AttributeSet baseStyle) throws BadLocationException {
+        SimpleAttributeSet tokenStyle = new SimpleAttributeSet(chatArea.getStyle("token"));
+        tokenStyle.addAttributes(baseStyle);
+        tokenStyle.addAttribute(TOKEN_ATTRIBUTE, Boolean.TRUE);
+        tokenStyle.addAttribute(TOKEN_HASH_ATTRIBUTE, hash);
+        tokenStyle.addAttribute(TOKEN_CHUNK_ID_ATTRIBUTE, chunkId);
+        chatDocument.insertString(chatDocument.getLength(), visibleText, tokenStyle);
     }
 }
