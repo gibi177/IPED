@@ -55,7 +55,7 @@ public class AIAssistantPanel {
     private static final Pattern STREAM_PART_PATTERN = Pattern.compile("\\S+|\\s+");
 
     // Main UI components
-    private JDialog dialog;
+    private JFrame frame;
     private JTextPane chatArea;
     private JScrollPane chatScrollPane;
     private StyledDocument chatDocument;
@@ -126,8 +126,9 @@ public class AIAssistantPanel {
         String title = "AI Assistant";
         try { title = Messages.getString("AIAssistant.Title"); } catch (Exception e) {}
 
-        dialog = new JDialog(App.get(), title, false);
-        dialog.setResizable(true);
+        frame = new JFrame(title);
+        frame.setDefaultCloseOperation(WindowConstants.HIDE_ON_CLOSE);
+        frame.setResizable(true);
 
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
@@ -165,8 +166,8 @@ public class AIAssistantPanel {
         mainPanel.add(centerPanel, BorderLayout.CENTER);
         mainPanel.add(createBottomPanel(), BorderLayout.SOUTH);
 
-        dialog.getContentPane().add(mainPanel);
-        dialog.pack();
+        frame.getContentPane().add(mainPanel);
+        frame.pack();
         positionDialog();
 
         addMessage("System", "AI Assistant ready. Connected to local Backend server.\nRight-click an HTML WhatsApp chat export to add it to the context, then type your question.");
@@ -214,7 +215,7 @@ public class AIAssistantPanel {
                 IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "hash:" + hash);
                 MultiSearchResult result = searcher.multiSearch();
                 if (result == null || result.getLength() == 0) {
-                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dialog,
+                    SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(frame,
                             "Item not found for hash: " + hash, "Not found", JOptionPane.INFORMATION_MESSAGE));
                     return;
                 }
@@ -240,7 +241,7 @@ public class AIAssistantPanel {
 
             } catch (Exception ex) {
                 ex.printStackTrace();
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(dialog,
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(frame,
                         "Error opening item: " + ex.getMessage(), "Error", JOptionPane.ERROR_MESSAGE));
             }
         }).start();
@@ -555,16 +556,16 @@ public class AIAssistantPanel {
         Rectangle screenBounds = resolvePreferredScreenBounds();
 
         int height = (int) (screenBounds.height * HEIGHT_PERCENTAGE);
-        dialog.setSize(PANEL_WIDTH + 150, height);
+        frame.setSize(PANEL_WIDTH + 150, height);
 
-        int x = screenBounds.x + screenBounds.width - dialog.getWidth() - HORIZONTAL_OFFSET;
+        int x = screenBounds.x + screenBounds.width - frame.getWidth() - HORIZONTAL_OFFSET;
         int y = screenBounds.y + VERTICAL_OFFSET;
 
-        if (y + dialog.getHeight() > screenBounds.y + screenBounds.height) {
-            y = screenBounds.y + screenBounds.height - dialog.getHeight();
+        if (y + frame.getHeight() > screenBounds.y + screenBounds.height) {
+            y = screenBounds.y + screenBounds.height - frame.getHeight();
         }
 
-        dialog.setLocation(x, y);
+        frame.setLocation(x, y);
     }
 
     private Rectangle resolvePreferredScreenBounds() {
@@ -590,7 +591,7 @@ public class AIAssistantPanel {
 
     private void ensureVisibleOnScreen() {
         Rectangle virtualBounds = getVirtualScreenBounds();
-        Rectangle currentBounds = dialog.getBounds();
+        Rectangle currentBounds = frame.getBounds();
         if (!virtualBounds.intersects(currentBounds)) {
             positionDialog();
         }
@@ -598,11 +599,11 @@ public class AIAssistantPanel {
 
     private void showDialogSafely() {
         ensureVisibleOnScreen();
-        if (!dialog.isVisible()) {
-            dialog.setVisible(true);
+        if (!frame.isVisible()) {
+            frame.setVisible(true);
         }
-        dialog.toFront();
-        dialog.requestFocus();
+        frame.toFront();
+        frame.requestFocus();
         inputArea.requestFocusInWindow();
     }
 
@@ -752,7 +753,7 @@ public class AIAssistantPanel {
         progressBar.setVisible(processing);
         sendButton.setEnabled(!processing);
         inputArea.setEnabled(!processing);
-        dialog.setCursor(processing ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : Cursor.getDefaultCursor());
+        frame.setCursor(processing ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : Cursor.getDefaultCursor());
     }
 
     private void appendFinalizedMessage(AIChatMessage message) {
@@ -813,8 +814,8 @@ public class AIAssistantPanel {
 
     public void toggleVisibility() {
         Runnable action = () -> {
-            if (dialog.isVisible()) {
-                dialog.setVisible(false);
+            if (frame.isVisible()) {
+                frame.setVisible(false);
             } else {
                 showDialogSafely();
             }
