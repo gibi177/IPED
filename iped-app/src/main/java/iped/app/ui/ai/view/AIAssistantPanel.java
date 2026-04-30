@@ -55,8 +55,8 @@ public class AIAssistantPanel {
     private static final Pattern STREAM_PART_PATTERN = Pattern.compile("\\S+|\\s+");
 
     // Main UI components
-    private JFrame frame;
-    private JTextPane chatArea;
+    private JFrame frame; // main window
+    private JTextPane chatArea; 
     private JScrollPane chatScrollPane;
     private StyledDocument chatDocument;
     private JTextArea inputArea;
@@ -402,6 +402,7 @@ public class AIAssistantPanel {
         contextPanel.repaint();
     }
 
+    // Quick actions panel
     private JPanel createTasksPanel() {
         JPanel panel = new JPanel();
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
@@ -420,7 +421,36 @@ public class AIAssistantPanel {
             panel.add(btn);
             panel.add(Box.createVerticalStrut(5));
         }
+        
+        // Add separator
+        panel.add(Box.createVerticalStrut(10));
+        JSeparator separator = new JSeparator();
+        separator.setMaximumSize(new Dimension(200, 1));
+        panel.add(separator);
+        panel.add(Box.createVerticalStrut(5));
+        
+        // Clear Chat History button
+        JButton clearChatButton = new JButton("Clear Chat History");
+        clearChatButton.setAlignmentX(Component.CENTER_ALIGNMENT);
+        clearChatButton.setMaximumSize(new Dimension(200, 30));
+        clearChatButton.addActionListener(e -> clearChatHistory());
+        panel.add(clearChatButton);
+        
         return panel;
+    }
+    
+    // Action Button to clear the chat history, resetting the conversation and UI to a clean state
+    private void clearChatHistory() {
+        finalizedMessages.clear();
+        draftMessage = null;
+        
+        try {
+            chatDocument.remove(0, chatDocument.getLength());
+        } catch (BadLocationException e) {
+            System.err.println("Error clearing chat document: " + e.getMessage());
+        }
+        
+        refreshChatArea();
     }
 
     private JPanel createBottomPanel() {
