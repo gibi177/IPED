@@ -52,6 +52,8 @@ public class AIAssistantPanel {
     private static final int PANEL_WIDTH = 550;
     private static final int STREAM_APPEND_DELAY_MS = 30;
     private static final int AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 24;
+    private static final int CONTEXT_VISIBLE_ITEMS = 5;
+    private static final int CONTEXT_REMOVE_HOTZONE_PX = 28;
     private static final Pattern STREAM_PART_PATTERN = Pattern.compile("\\S+|\\s+");
 
     // Main UI components
@@ -281,7 +283,7 @@ public class AIAssistantPanel {
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
 
         // Update status label to indicate live connection
-        statusLabel = new JLabel("● Connected to local backend server"); 
+        statusLabel = new JLabel("● Connected to local backend server");
         statusLabel.setForeground(new Color(0, 150, 0)); // Green for active
 
         JPanel leftPanel = new JPanel(new BorderLayout());
@@ -298,15 +300,13 @@ public class AIAssistantPanel {
         contextListModel = new DefaultListModel<>();
         contextList = new JList<>(contextListModel);
         contextList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        contextList.setVisibleRowCount(5);
+        contextList.setVisibleRowCount(CONTEXT_VISIBLE_ITEMS);
         contextList.setBackground(new Color(255, 255, 240));
 
-        // Custom Cell Renderer mapping our ContextFileEntry ViewModel to the screen
         contextList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
-            JLabel label = (JLabel) new DefaultListCellRenderer()
-                    .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-
             if (value instanceof ContextSummaryRow) {
+                JLabel label = (JLabel) new DefaultListCellRenderer()
+                        .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
                 ContextSummaryRow summary = (ContextSummaryRow) value;
                 label.setText(summary.toString());
                 label.setForeground(Color.DARK_GRAY);
@@ -316,19 +316,43 @@ public class AIAssistantPanel {
             }
 
             if (value instanceof ContextFileEntry) {
-                ContextFileEntry entry = (ContextFileEntry) value;
-                if (entry.isValidForContext()) {
-                    label.setText(entry.getFileName());
-                    label.setToolTipText(entry.getFullPath());
-                } else {
-                    String reason = entry.getValidationReason() != null ? entry.getValidationReason() : "Rejected item.";
-                    label.setText(entry.getFileName() + " - " + reason);
-                    label.setToolTipText(reason + " Path: " + entry.getFullPath());
-                    label.setForeground(new Color(180, 0, 0));
-                }
+                return createContextEntryCell(list, (ContextFileEntry) value, isSelected);
             }
 
+            JLabel label = (JLabel) new DefaultListCellRenderer()
+                    .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            label.setText(String.valueOf(value));
             return label;
+        });
+
+        contextList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) {
+                    return;
+                }
+
+                int index = contextList.locationToIndex(e.getPoint());
+                if (index < 0 || index >= contextListModel.size()) {
+                    return;
+                }
+
+                Rectangle cellBounds = contextList.getCellBounds(index, index);
+                if (cellBounds == null || !cellBounds.contains(e.getPoint())) {
+                    return;
+                }
+
+                Object value = contextListModel.getElementAt(index);
+                if (!(value instanceof ContextFileEntry)) {
+                    return;
+                }
+
+                if (!isRemoveHotzoneClick(e, cellBounds)) {
+                    return;
+                }
+
+                AIContextManager.getInstance().removeContextFile(((ContextFileEntry) value).getItem());
+            }
         });
 
         JScrollPane contextScroll = new JScrollPane(contextList);
@@ -381,13 +405,13 @@ public class AIAssistantPanel {
             contextList.setVisible(true);
             clearContextButton.setEnabled(true);
 
-            int visibleCount = Math.min(5, entries.size());
+            int visibleCount = Math.min(CONTEXT_VISIBLE_ITEMS, entries.size());
             for (int i = 0; i < visibleCount; i++) {
                 contextListModel.addElement(entries.get(i));
             }
 
-            if (entries.size() > 5) {
-                int hiddenCount = entries.size() - 5;
+            if (entries.size() > CONTEXT_VISIBLE_ITEMS) {
+                int hiddenCount = entries.size() - CONTEXT_VISIBLE_ITEMS;
                 String summaryText = "+ " + hiddenCount + " more items (" + validFiles.size() + " valid, " + invalidCount + " rejected)";
                 contextListModel.addElement(new ContextSummaryRow(summaryText));
             }
@@ -400,6 +424,41 @@ public class AIAssistantPanel {
         }
 
         contextPanel.repaint();
+    }
+
+    private JComponent createContextEntryCell(JList<?> list, ContextFileEntry entry, boolean isSelected) {
+        JPanel rowPanel = new JPanel(new BorderLayout(8, 0));
+        rowPanel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
+        rowPanel.setOpaque(true);
+        rowPanel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+
+        JLabel textLabel = new JLabel();
+        textLabel.setOpaque(false);
+        textLabel.setFont(list.getFont());
+        textLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+
+        JLabel removeLabel = new JLabel("X");
+        removeLabel.setOpaque(false);
+        removeLabel.setFont(list.getFont().deriveFont(Font.BOLD));
+        removeLabel.setForeground(new Color(160, 0, 0));
+
+        if (entry.isValidForContext()) {
+            textLabel.setText(entry.getFileName());
+            rowPanel.setToolTipText(entry.getFullPath());
+        } else {
+            String reason = entry.getValidationReason() != null ? entry.getValidationReason() : "Rejected item.";
+            textLabel.setText(entry.getFileName() + " - " + reason);
+            rowPanel.setToolTipText(reason + " Path: " + entry.getFullPath());
+            textLabel.setForeground(isSelected ? list.getSelectionForeground() : new Color(180, 0, 0));
+        }
+
+        rowPanel.add(textLabel, BorderLayout.CENTER);
+        rowPanel.add(removeLabel, BorderLayout.EAST);
+        return rowPanel;
+    }
+
+    private boolean isRemoveHotzoneClick(MouseEvent e, Rectangle cellBounds) {
+        return e.getX() >= cellBounds.x + cellBounds.width - CONTEXT_REMOVE_HOTZONE_PX;
     }
 
     // Quick actions panel
