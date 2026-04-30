@@ -33,7 +33,8 @@ import javax.swing.JTable;
 import javax.swing.KeyStroke;
 import javax.swing.SwingUtilities;
 
-import iped.app.ui.ai.AIContextManager;
+import iped.app.ui.ai.context.AIContextManager;
+import iped.app.ui.ai.view.AIAssistantPanel;
 import iped.app.ui.themes.Theme;
 import iped.app.ui.themes.ThemeManager;
 import iped.data.IItem;

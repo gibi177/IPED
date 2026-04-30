@@ -1,4 +1,4 @@
-package iped.app.ui.ai;
+package iped.app.ui.ai.util;
 
 import iped.data.IItem;
 import java.io.ByteArrayOutputStream;

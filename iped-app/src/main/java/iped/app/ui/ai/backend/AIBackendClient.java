@@ -1,6 +1,7 @@
 package iped.app.ui.ai.backend;
 
 import com.google.gson.Gson;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -14,6 +15,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.function.Consumer;
 import java.util.List;
+import java.util.ArrayList;
 
 /**
  * Concrete implementation of {@link AIBackendService} responsible for handling
@@ -188,6 +190,115 @@ public class AIBackendClient implements AIBackendService {
 
         } catch (Exception e) {
             throw new AIBackendException("Failed to stream chat response: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Synchronously initializes a multi-chat session
+     * <p>
+     * This method converts the structured DTO into JSON and parses the resulting 
+     * JSON array response back into a standard Java List of strings
+     * </p>
+     * @param requestPayload The initialized multi-chat configuration
+     * @return A list of unique hashes representing the cached sessions on the backend
+     * @throws AIBackendException if the network fails or the backend returns an error JSON object
+     */
+    @Override
+    public List<String> initMultiChat(AIInitMultiChatRequest requestPayload) throws AIBackendException {
+        try {
+            String jsonBody = gson.toJson(requestPayload);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(config.getBaseUrl() + "/api/init_multichat_with_summaries"))
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + config.getApiKey())
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+            if (response.statusCode() != 200) {
+                throw new AIBackendException("Backend returned HTTP " + response.statusCode() + ": " + response.body());
+            }
+
+            JsonObject responseJson = JsonParser.parseString(response.body()).getAsJsonObject();
+            if (responseJson.has("error")) {
+                throw new AIBackendException("Backend Error: " + responseJson.get("error").getAsString());
+            }
+
+            // backend returns: {"response": ["hash1", "hash2"]}
+            List<String> cachedHashes = new ArrayList<>();
+            for (JsonElement element : responseJson.getAsJsonArray("response")) {
+                cachedHashes.add(element.getAsString());
+            }
+            return cachedHashes;
+
+        } catch (Exception e) {
+            throw new AIBackendException("Failed to initialize multi-chat: " + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * Asynchronously streams a multi-chat response using Server-Sent Events (SSE)
+     * <p>
+     * This method holds an open HTTP/1.1 InputStream and processes incoming 
+     * {@code data: {JSON}} strings line-by-line. It parses out standard text tokens, 
+     * formats reasoning/status tags into italics, and delegates the result to the UI
+     * </p>
+     * * @param chatHashes The list of target session hashes
+     * @param question     The prompt
+     * @param history      Conversational memory
+     * @param eventHandler The UI consumption callback
+     * @throws AIBackendException if the HTTP stream drops or reports a backend error event
+     */
+    @Override
+    public void streamMultiChatResponse(List<String> chatHashes, String question, List<AIStreamChatRequest.AIMessage> history, Consumer<String> eventHandler) throws AIBackendException {
+        try {
+            AIMultiChatStreamRequest payload = new AIMultiChatStreamRequest(chatHashes, question, history);
+            String jsonBody = gson.toJson(payload);
+
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(config.getBaseUrl() + "/api/multichat/stream"))
+                    .header("Content-Type", "application/json; charset=utf-8")
+                    .header("Accept", "application/json")
+                    .header("Authorization", "Bearer " + config.getApiKey())
+                    .POST(HttpRequest.BodyPublishers.ofString(jsonBody, StandardCharsets.UTF_8))
+                    .build();
+
+            HttpResponse<java.io.InputStream> response = httpClient.send(request, HttpResponse.BodyHandlers.ofInputStream());
+            
+            if (response.statusCode() != 200) {
+                throw new AIBackendException("Backend returned HTTP " + response.statusCode());
+            }
+
+            // The SSE parsing logic is identical to the single-chat stream
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (line.startsWith("data: ")) {
+                        String jsonData = line.substring(6).trim();
+                        if (jsonData.isEmpty() || jsonData.equals("[DONE]")) continue;
+
+                        JsonObject eventObj = JsonParser.parseString(jsonData).getAsJsonObject();
+                        String type = eventObj.has("type") ? eventObj.get("type").getAsString() : "";
+                        
+                        if (eventObj.has("content")) {
+                            String content = eventObj.get("content").getAsString();
+                            
+                            if (type.equals("status") || type.equals("thinking")) {
+                                eventHandler.accept("\n_" + content + "_\n");
+                            } else if (type.equals("final")) {
+                                eventHandler.accept(content); 
+                            } else if (type.equals("error")) {
+                                throw new AIBackendException("Backend Streaming Error: " + content);
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            throw new AIBackendException("Failed to stream multi-chat response: " + e.getMessage(), e);
         }
     }
 }
