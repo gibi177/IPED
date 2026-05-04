@@ -53,7 +53,7 @@ public class MenuClass extends JPopupMenu {
     JMenuItem exportHighlighted, copyHighlighted, checkHighlighted, uncheckHighlighted, readHighlighted, unreadHighlighted, exportChecked, copyChecked, saveBookmarks, loadBookmarks,
             checkHighlightedAndSubItems, uncheckHighlightedAndSubItems, checkHighlightedAndParent, uncheckHighlightedAndParent, checkHighlightedAndReferences, uncheckHighlightedAndReferences, checkHighlightedAndReferencedBy, uncheckHighlightedAndReferencedBy,
             changeGalleryColCount, defaultLayout, changeLayout, previewScreenshot, manageBookmarks, clearSearchHistory, importKeywords, navigateToParent, exportTerms, manageFilters, manageColumns, exportCheckedToZip, exportCheckedTreeToZip,
-            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, addToAIContext, addAllCheckedToAIContext, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
+            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, addAllHighlightedToAIContext, addAllCheckedToAIContext, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
             similarFacesCurrent, similarFacesExternal, toggleTimelineView, uiZoom, catIconSize, savePanelsLayout, loadPanelsLayout;
 
     MenuListener menuListener = new MenuListener(this);
@@ -336,21 +336,30 @@ public class MenuClass extends JPopupMenu {
         addToGraph.addActionListener(menuListener);
         this.add(addToGraph);
         
-        // AI Context 
-        addToAIContext = new JMenuItem(Messages.getString("MenuClass.AddToAIContext")); //$NON-NLS-1$
+        // AI Context: Add Highlighted
+        addAllHighlightedToAIContext = new JMenuItem(Messages.getString("MenuClass.AddAllHighlightedToAIContext")); 
         try {
-            addToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
+            addAllHighlightedToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
         } catch (Exception ignored) {}
         
-        addToAIContext.setEnabled(item != null);
-        addToAIContext.addActionListener(e -> {
+        addAllHighlightedToAIContext.addActionListener(e -> {
             new Thread(() -> {
-                AIContextManager.getInstance().addContextFile(item);
-                SwingUtilities.invokeLater(() -> AIAssistantPanel.getInstance().showPanel());
+                List<IItem> itemsToAdd = getHighlightedItems();
+                
+                // Fallback: If no table rows are highlighted, or user clicked from the tree, use the single right-clicked item
+                if (itemsToAdd.isEmpty() && item != null) {
+                    itemsToAdd.add(item);
+                }
+                
+                if (!itemsToAdd.isEmpty()) {
+                    AIContextManager.getInstance().addContextFiles(itemsToAdd);
+                    SwingUtilities.invokeLater(() -> AIAssistantPanel.getInstance().showPanel());
+                }
             }).start();
         });
-        this.add(addToAIContext);
+        this.add(addAllHighlightedToAIContext);
 
+        // AI Context: Add Checked
         addAllCheckedToAIContext = new JMenuItem(Messages.getString("MenuClass.AddAllCheckedToAIContext")); //$NON-NLS-1$
         try {
             addAllCheckedToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
@@ -395,6 +404,20 @@ public class MenuClass extends JPopupMenu {
             }
         }
 
+        return new ArrayList<>(selectedItems);
+    }
+
+    private List<IItem> getHighlightedItems() {
+        LinkedHashSet<IItem> selectedItems = new LinkedHashSet<>();
+        JTable table = App.get().getResultsTable();
+
+        // If we are in the main results table, grab all highlighted rows
+        if (table != null && !isTreeMenu) {
+            int[] selectedRows = table.getSelectedRows();
+            for (int viewRow : selectedRows) {
+                selectedItems.add(resolveItemFromRow(table, viewRow));
+            }
+        }
         return new ArrayList<>(selectedItems);
     }
 
