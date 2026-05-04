@@ -503,6 +503,11 @@ public class AIAssistantPanel {
         finalizedMessages.clear();
         draftMessage = null;
         
+        // Wipe the Coordinator's memory
+        if (coordinator != null) {
+            coordinator.clearHistory();
+        }
+        
         try {
             chatDocument.remove(0, chatDocument.getLength());
         } catch (BadLocationException e) {

@@ -140,4 +140,12 @@ public class AIChatCoordinator {
     private String cleanThinkingTags(String rawResponse) {
         return rawResponse.replaceAll("(?m)^_.*_$\\n?", "").trim();
     }
+
+    public void clearHistory() {
+        this.chatHistory.clear();
+
+        // Also clear chat currentChatHashes and currentContextItemIds
+        currentChatHashes.clear();
+        currentContextItemIds.clear();
+    }
 }
