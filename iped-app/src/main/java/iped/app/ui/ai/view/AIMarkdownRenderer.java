@@ -14,6 +14,8 @@ import javax.swing.text.Style;
 import javax.swing.text.StyleConstants;
 import javax.swing.text.StyledDocument;
 
+import iped.app.ui.ai.context.AIContextManager;
+import iped.app.ui.ai.model.ContextFileEntry;
 import iped.app.ui.ai.model.AIChatMessage;
 
 /**
@@ -481,7 +483,9 @@ public class AIMarkdownRenderer {
                     String tokenText = text.substring(tokenStart + 2, end);
                     String[] tokenParts = tokenText.split("-", 2);
                     if (tokenParts.length == 2 && !tokenParts[0].isBlank() && !tokenParts[1].isBlank()) {
-                        appendToken(text.substring(tokenStart, end + 2), tokenParts[0], tokenParts[1], baseStyle);
+                        String fallbackVisibleText = text.substring(tokenStart, end + 2);
+                        String visibleText = resolveTokenVisibleText(tokenParts[0], fallbackVisibleText);
+                        appendToken(visibleText, tokenParts[0], tokenParts[1], baseStyle);
                         index = end + 2;
                         continue;
                     }
@@ -593,6 +597,32 @@ public class AIMarkdownRenderer {
             }
         }
         return result;
+    }
+
+    /**
+     * Resolves the visual text for a token without changing its click metadata.
+     */
+    private String resolveTokenVisibleText(String hash, String fallbackVisibleText) {
+        if (hash == null || hash.isBlank()) {
+            return fallbackVisibleText;
+        }
+
+        for (ContextFileEntry entry : AIContextManager.getInstance().getContextEntriesForUI()) {
+            if (entry == null || !entry.isValidForContext() || entry.getItem() == null) {
+                continue;
+            }
+
+            String itemHash = entry.getItem().getHash();
+            if (itemHash != null && itemHash.equalsIgnoreCase(hash)) {
+                String fileName = entry.getFileName();
+                if (fileName != null && !fileName.isBlank()) {
+                    return fileName;
+                }
+                break;
+            }
+        }
+
+        return fallbackVisibleText;
     }
 
     /**

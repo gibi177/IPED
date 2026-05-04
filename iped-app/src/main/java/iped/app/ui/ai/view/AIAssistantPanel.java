@@ -198,7 +198,7 @@ public class AIAssistantPanel {
                 int start = element.getStartOffset();
                 int end = element.getEndOffset();
                 chatArea.setSelectionStart(start);
-                chatArea.setSelectionEnd(Math.max(start, end - 1));
+                chatArea.setSelectionEnd(Math.max(start, end));
 
                 Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
                 Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
