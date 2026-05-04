@@ -53,7 +53,7 @@ public class MenuClass extends JPopupMenu {
     JMenuItem exportHighlighted, copyHighlighted, checkHighlighted, uncheckHighlighted, readHighlighted, unreadHighlighted, exportChecked, copyChecked, saveBookmarks, loadBookmarks,
             checkHighlightedAndSubItems, uncheckHighlightedAndSubItems, checkHighlightedAndParent, uncheckHighlightedAndParent, checkHighlightedAndReferences, uncheckHighlightedAndReferences, checkHighlightedAndReferencedBy, uncheckHighlightedAndReferencedBy,
             changeGalleryColCount, defaultLayout, changeLayout, previewScreenshot, manageBookmarks, clearSearchHistory, importKeywords, navigateToParent, exportTerms, manageFilters, manageColumns, exportCheckedToZip, exportCheckedTreeToZip,
-            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, addToAIContext, addAllMarkedToAIContext, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
+            exportTree, exportTreeChecked, similarDocs, openViewfile, createReport, resetColLayout, lastColLayout, saveColLayout, addToGraph, addToAIContext, addAllCheckedToAIContext, navigateToParentChat, pinFirstColumns, similarImagesCurrent, similarImagesExternal,
             similarFacesCurrent, similarFacesExternal, toggleTimelineView, uiZoom, catIconSize, savePanelsLayout, loadPanelsLayout;
 
     MenuListener menuListener = new MenuListener(this);
@@ -351,21 +351,21 @@ public class MenuClass extends JPopupMenu {
         });
         this.add(addToAIContext);
 
-        addAllMarkedToAIContext = new JMenuItem(Messages.getString("MenuClass.AddAllMarkedToAIContext")); //$NON-NLS-1$
+        addAllCheckedToAIContext = new JMenuItem(Messages.getString("MenuClass.AddAllCheckedToAIContext")); //$NON-NLS-1$
         try {
-            addAllMarkedToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
+            addAllCheckedToAIContext.setIcon(iped.utils.IconUtil.getToolbarIcon("ai-assistant", App.resPath));
         } catch (Exception ignored) {}
 
-        addAllMarkedToAIContext.addActionListener(e -> {
+        addAllCheckedToAIContext.addActionListener(e -> {
             new Thread(() -> {
-                List<IItem> itemsToAdd = getMarkedItems();
+                List<IItem> itemsToAdd = getCheckedItems();
                 if (!itemsToAdd.isEmpty()) {
                     AIContextManager.getInstance().addContextFiles(itemsToAdd);
                     SwingUtilities.invokeLater(() -> AIAssistantPanel.getInstance().showPanel());
                 }
             }).start();
         });
-        this.add(addAllMarkedToAIContext);
+        this.add(addAllCheckedToAIContext);
 
         this.addSeparator();
 
@@ -376,7 +376,7 @@ public class MenuClass extends JPopupMenu {
     } 
 
     // Helper Methods moved outside the constructor
-    private List<IItem> getMarkedItems() {
+    private List<IItem> getCheckedItems() {
         LinkedHashSet<IItem> selectedItems = new LinkedHashSet<>();
         JTable table = App.get().getResultsTable();
 
