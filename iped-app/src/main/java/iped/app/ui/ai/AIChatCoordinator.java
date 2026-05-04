@@ -131,4 +131,22 @@ public class AIChatCoordinator {
             }
         }).start();
     }
+<<<<<<< last-changes
+
+    /**
+     * Removes italicized thinking tags before saving to LLM history.
+     */
+    private String cleanThinkingTags(String rawResponse) {
+        return rawResponse.replaceAll("(?m)^_.*_$\\n?", "").trim();
+    }
+
+    public void clearHistory() {
+        this.chatHistory.clear();
+
+        // Also clear chat currentChatHashes and currentContextItemIds
+        currentChatHashes.clear();
+        currentContextItemIds.clear();
+    }
+=======
+>>>>>>> pr-2646
 }
