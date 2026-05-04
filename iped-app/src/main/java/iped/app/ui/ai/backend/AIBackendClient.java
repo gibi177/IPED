@@ -154,10 +154,12 @@ public class AIBackendClient implements AIBackendService {
             // Process the Server-Sent Events (SSE) stream
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
                 String line;
+
+                // Add a flag to track the first final token
+                boolean isFirstFinalToken = true;
                 
                 // Blocks here until a new line arrives over the network, then processes it
                 while ((line = reader.readLine()) != null) {
-                    
                     // SSE protocol dictates data lines begin with "data: "
                     if (line.startsWith("data: ")) {
                         String jsonData = line.substring(6).trim(); // Strips the "data: "
@@ -173,13 +175,21 @@ public class AIBackendClient implements AIBackendService {
                         if (eventObj.has("content")) {
                             String content = eventObj.get("content").getAsString();
                             
-                            // Route the token to the UI using the Consumer callback
-                            if (type.equals("status") || type.equals("thinking")) {
-                                // Format metadata in italics for the UI
-                                eventHandler.accept("\n_" + content + "_\n");
+                            if (type.equals("status")) {
+                                // Format metadata in italics for the UI, with explicit 'status' indication
+                                eventHandler.accept("\n_**[Status]:** " + content + "_\n");
+                            } else if (type.equals("thinking")) {
+                                // Format metadata in italics for the UI, with explicit 'thinking' indication
+                                eventHandler.accept("\n_**[Thinking]:** " + content + "_\n");
                             } else if (type.equals("final")) {
-                                // Push the raw LLM token directly to the screen
-                                eventHandler.accept(content); 
+
+                                // Check the flag before appending
+                                if (isFirstFinalToken) {
+                                    eventHandler.accept("\n" + content); // Add newline for the first word
+                                    isFirstFinalToken = false;           // Turn the flag off
+                                } else {
+                                    eventHandler.accept(content);        // Print normally for the rest
+                                }
                             } else if (type.equals("error")) {
                                 throw new AIBackendException("Backend Streaming Error: " + content);
                             }
@@ -275,9 +285,14 @@ public class AIBackendClient implements AIBackendService {
             // The SSE parsing logic is identical to the single-chat stream
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
                 String line;
+
+                // Add a flag to track the first final token
+                boolean isFirstFinalToken = true;
+
                 while ((line = reader.readLine()) != null) {
                     if (line.startsWith("data: ")) {
                         String jsonData = line.substring(6).trim();
+
                         if (jsonData.isEmpty() || jsonData.equals("[DONE]")) continue;
 
                         JsonObject eventObj = JsonParser.parseString(jsonData).getAsJsonObject();
@@ -286,10 +301,21 @@ public class AIBackendClient implements AIBackendService {
                         if (eventObj.has("content")) {
                             String content = eventObj.get("content").getAsString();
                             
-                            if (type.equals("status") || type.equals("thinking")) {
-                                eventHandler.accept("\n_" + content + "_\n");
+                            if (type.equals("status")) {
+                                // Format metadata in italics for the UI, with explicit 'status' indication
+                                eventHandler.accept("\n_**[Status]:** " + content + "_\n");
+                            } else if (type.equals("thinking")) {
+                                // Format metadata in italics for the UI, with explicit 'thinking' indication
+                                eventHandler.accept("\n_**[Thinking]:** " + content + "_\n");
                             } else if (type.equals("final")) {
-                                eventHandler.accept(content); 
+
+                                // Check the flag before appending
+                                if (isFirstFinalToken) {
+                                    eventHandler.accept("\n" + content); // Add newline for the first word
+                                    isFirstFinalToken = false;           // Turn the flag off
+                                } else {
+                                    eventHandler.accept(content);        // Print normally for the rest
+                                }
                             } else if (type.equals("error")) {
                                 throw new AIBackendException("Backend Streaming Error: " + content);
                             }
