@@ -76,7 +76,7 @@ public class AIChatCoordinator {
             try {
                 // Step A: Initialize the Chat (Only if context changed)
                 if (contextChanged) {
-                    uiCallback.accept("[System]: Initializing context...\n");
+                    uiCallback.accept("**[System]:** Initializing context...\n\n");
                     chatHistory.clear();
                     currentChatHashes.clear();
                     
@@ -99,7 +99,6 @@ public class AIChatCoordinator {
 
                 // Step B: Stream the response
                 StringBuilder fullResponse = new StringBuilder(); 
-                uiCallback.accept("[Assistant]: ");
 
                 // Route to the correct streaming endpoint
                 if (validEntries.size() == 1) {
@@ -119,9 +118,8 @@ public class AIChatCoordinator {
                 uiCallback.accept("\n\n");
 
                 // Step C: Save the turn to history
-                String finalAnswer = cleanThinkingTags(fullResponse.toString());
                 chatHistory.add(new AIStreamChatRequest.AIMessage("user", question));
-                chatHistory.add(new AIStreamChatRequest.AIMessage("assistant", finalAnswer));
+                chatHistory.add(new AIStreamChatRequest.AIMessage("assistant", fullResponse.toString()));
 
             } catch (Exception e) {
                 onError.accept("Backend error: " + e.getMessage());
@@ -132,12 +130,5 @@ public class AIChatCoordinator {
                 onComplete.run(); 
             }
         }).start();
-    }
-
-    /**
-     * Removes italicized thinking tags before saving to LLM history.
-     */
-    private String cleanThinkingTags(String rawResponse) {
-        return rawResponse.replaceAll("(?m)^_.*_$\\n?", "").trim();
     }
 }
