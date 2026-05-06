@@ -7,6 +7,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -19,19 +20,20 @@ import javax.swing.text.StyledDocument;
 
 import iped.app.ui.ai.AIChatCoordinator;
 import iped.app.ui.ai.model.AIChatMessage;
+import iped.app.ui.ai.model.ContextFileEntry;
 import iped.app.ui.ai.context.AIContextManager;
 import iped.app.ui.ai.context.ContextChangeEvent;
 import iped.app.ui.ai.context.ContextChangeListener;
-import iped.app.ui.ai.model.ContextFileEntry;
 import iped.app.ui.ai.backend.AIBackendClient;
 import iped.app.ui.ai.backend.AIBackendConfig;
+
 import iped.app.ui.App;
 import iped.app.ui.Messages;
+import iped.app.ui.FileProcessor;
 import iped.data.IItem;
+import iped.data.IItemId;
 import iped.engine.search.IPEDSearcher;
 import iped.engine.search.MultiSearchResult;
-import iped.data.IItemId;
-import iped.app.ui.FileProcessor;
 
 /**
  * AI Assistant floating panel UI layer for IPED.
@@ -543,6 +545,12 @@ public class AIAssistantPanel {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(BorderFactory.createTitledBorder("Quick Actions"));
 
+        // Map English button text to Portuguese prompts
+        Map<String, String> taskPrompts = new java.util.HashMap<>();
+        taskPrompts.put("Summarize", "Resuma o arquivo fornecido.");
+        taskPrompts.put("Find Patterns", "Encontre padrões no arquivo fornecido.");
+        taskPrompts.put("Analyze Metadata", "Analise os metadados do arquivo fornecido.");
+
         String[] tasks = {"Summarize", "Find Patterns", "Analyze Metadata"};
         for (String task : tasks) {
             JButton btn = new JButton(task);
@@ -550,7 +558,7 @@ public class AIAssistantPanel {
             btn.setMaximumSize(new Dimension(200, 30));
             // Firing a pre-written prompt directly into the input area logic
             btn.addActionListener(e -> {
-                inputArea.setText(task + " the provided file.");
+                inputArea.setText(taskPrompts.get(task));
                 handleSendAction();
             });
             panel.add(btn);
