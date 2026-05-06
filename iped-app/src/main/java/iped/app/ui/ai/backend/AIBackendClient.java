@@ -34,6 +34,9 @@ import java.util.ArrayList;
  * {@link AIBackendConfig} is immutable.</p>
  */
 public class AIBackendClient implements AIBackendService {
+
+    private static final String THINKING_BLOCK_PREFIX = "[[AI_THINKING]]";
+    private static final String THINKING_BLOCK_SUFFIX = "[[/AI_THINKING]]";
     
     private final AIBackendConfig config;
     private final HttpClient httpClient;
@@ -179,8 +182,8 @@ public class AIBackendClient implements AIBackendService {
                                 // Format metadata in italics for the UI, with explicit 'status' indication
                                 eventHandler.accept("\n_**[Status]:** " + content + "_\n");
                             } else if (type.equals("thinking")) {
-                                // Format metadata in italics for the UI, with explicit 'thinking' indication
-                                eventHandler.accept("\n_**[Thinking]:** " + content + "_\n");
+                                // Emit a dedicated block marker to avoid markdown parsing conflicts
+                                eventHandler.accept("\n" + THINKING_BLOCK_PREFIX + content + THINKING_BLOCK_SUFFIX + "\n");
                             } else if (type.equals("final")) {
 
                                 // Check the flag before appending
@@ -305,8 +308,8 @@ public class AIBackendClient implements AIBackendService {
                                 // Format metadata in italics for the UI, with explicit 'status' indication
                                 eventHandler.accept("\n_**[Status]:** " + content + "_\n");
                             } else if (type.equals("thinking")) {
-                                // Format metadata in italics for the UI, with explicit 'thinking' indication
-                                eventHandler.accept("\n_**[Thinking]:** " + content + "_\n");
+                                // Emit a dedicated block marker to avoid markdown parsing conflicts
+                                eventHandler.accept("\n" + THINKING_BLOCK_PREFIX + content + THINKING_BLOCK_SUFFIX + "\n");
                             } else if (type.equals("final")) {
 
                                 // Check the flag before appending

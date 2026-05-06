@@ -26,13 +26,21 @@ public class AIMarkdownRenderer {
     public static final String TOKEN_ATTRIBUTE = "ai-token";
     public static final String TOKEN_HASH_ATTRIBUTE = "ai-token-hash";
     public static final String TOKEN_CHUNK_ID_ATTRIBUTE = "ai-token-chunk-id";
+    public static final String THINKING_TOGGLE_ATTRIBUTE = "ai-thinking-toggle";
+    public static final String THINKING_ID_ATTRIBUTE = "ai-thinking-id";
+
+    private static final String THINKING_BLOCK_PREFIX = "[[AI_THINKING]]";
+    private static final String THINKING_BLOCK_SUFFIX = "[[/AI_THINKING]]";
 
     private static final Logger LOGGER = LoggerFactory.getLogger(AIMarkdownRenderer.class);
 
     private final JTextPane chatArea;
     private final StyledDocument chatDocument;
     private final Map<String, Style> chatStyles = new HashMap<>();
+    private final Map<Integer, Boolean> thinkingExpandedState = new HashMap<>();
     private int draftStartOffset = -1;
+    private int nextThinkingBlockId = 0;
+    private int draftStartThinkingBlockId = -1;
 
     public AIMarkdownRenderer(JTextPane chatArea) {
         this.chatArea = chatArea;
@@ -54,6 +62,8 @@ public class AIMarkdownRenderer {
     public void renderMessages(List<AIChatMessage> messages) {
         try {
             draftStartOffset = -1;
+            draftStartThinkingBlockId = -1;
+            nextThinkingBlockId = 0;
             chatDocument.remove(0, chatDocument.getLength());
             for (AIChatMessage message : messages) {
                 appendMessageToDocument(message);
@@ -83,8 +93,12 @@ public class AIMarkdownRenderer {
         try {
             if (draftStartOffset < 0) {
                 draftStartOffset = chatDocument.getLength();
+                draftStartThinkingBlockId = nextThinkingBlockId;
             } else {
                 chatDocument.remove(draftStartOffset, chatDocument.getLength() - draftStartOffset);
+                if (draftStartThinkingBlockId >= 0) {
+                    nextThinkingBlockId = draftStartThinkingBlockId;
+                }
             }
 
             appendMessageToDocument(message);
@@ -99,6 +113,7 @@ public class AIMarkdownRenderer {
      */
     public void commitDraft() {
         draftStartOffset = -1;
+        draftStartThinkingBlockId = -1;
     }
 
     /**
@@ -116,7 +131,36 @@ public class AIMarkdownRenderer {
             e.printStackTrace();
         } finally {
             draftStartOffset = -1;
+            if (draftStartThinkingBlockId >= 0) {
+                nextThinkingBlockId = draftStartThinkingBlockId;
+            }
+            draftStartThinkingBlockId = -1;
         }
+    }
+
+    /**
+     * Toggles a thinking block when clicking on its header and returns true when handled.
+     */
+    public boolean toggleThinkingAtOffset(int offset) {
+        if (offset < 0) {
+            return false;
+        }
+
+        javax.swing.text.Element element = chatDocument.getCharacterElement(offset);
+        AttributeSet attributes = element.getAttributes();
+        if (!Boolean.TRUE.equals(attributes.getAttribute(THINKING_TOGGLE_ATTRIBUTE))) {
+            return false;
+        }
+
+        Object blockId = attributes.getAttribute(THINKING_ID_ATTRIBUTE);
+        if (!(blockId instanceof Integer)) {
+            return false;
+        }
+
+        int id = ((Integer) blockId).intValue();
+        boolean currentlyExpanded = thinkingExpandedState.getOrDefault(id, Boolean.TRUE);
+        thinkingExpandedState.put(id, !currentlyExpanded);
+        return true;
     }
 
     /**
@@ -193,6 +237,17 @@ public class AIMarkdownRenderer {
         StyleConstants.setBold(token, true);
         StyleConstants.setBackground(token, new java.awt.Color(0xe8, 0xf0, 0xfe));
         chatStyles.put("token", token);
+
+        Style thinkingHeader = chatArea.addStyle("thinking-header", base);
+        StyleConstants.setBold(thinkingHeader, true);
+        StyleConstants.setForeground(thinkingHeader, new java.awt.Color(0x1a, 0x56, 0xb3));
+        StyleConstants.setBackground(thinkingHeader, new java.awt.Color(0xe8, 0xf0, 0xfe));
+        chatStyles.put("thinking-header", thinkingHeader);
+
+        Style thinkingBody = chatArea.addStyle("thinking-body", base);
+        StyleConstants.setForeground(thinkingBody, new java.awt.Color(0x38, 0x40, 0x45));
+        StyleConstants.setBackground(thinkingBody, new java.awt.Color(0xf3, 0xf7, 0xfd));
+        chatStyles.put("thinking-body", thinkingBody);
     }
 
     /**
@@ -262,10 +317,67 @@ public class AIMarkdownRenderer {
         AttributeSet italicBaseStyle = createBaseStyle(true);
         String[] lines = normalizedMarkdown.split("\n", -1);
         boolean inUnderscoreItalicBlock = false;
+        boolean inThinkingBlock = false;
+        StringBuilder thinkingContentBuffer = new StringBuilder();
 
         for (String line : lines) {
             int lineStart = chatDocument.getLength();
             String lineToRender = line;
+
+            if (inThinkingBlock) {
+                int suffixIndex = lineToRender.indexOf(THINKING_BLOCK_SUFFIX);
+                if (suffixIndex < 0) {
+                    if (thinkingContentBuffer.length() > 0) {
+                        thinkingContentBuffer.append("\n");
+                    }
+                    thinkingContentBuffer.append(lineToRender);
+                    continue;
+                }
+
+                if (suffixIndex > 0) {
+                    if (thinkingContentBuffer.length() > 0) {
+                        thinkingContentBuffer.append("\n");
+                    }
+                    thinkingContentBuffer.append(lineToRender.substring(0, suffixIndex));
+                }
+
+                appendThinkingBlock(lineStart, thinkingContentBuffer.toString().trim(), container);
+                thinkingContentBuffer.setLength(0);
+                inThinkingBlock = false;
+                lineToRender = lineToRender.substring(suffixIndex + THINKING_BLOCK_SUFFIX.length());
+
+                if (lineToRender.trim().isEmpty()) {
+                    continue;
+                }
+            }
+
+            int prefixIndex = lineToRender.indexOf(THINKING_BLOCK_PREFIX);
+            if (prefixIndex >= 0) {
+                String beforePrefix = lineToRender.substring(0, prefixIndex);
+                if (!beforePrefix.trim().isEmpty()) {
+                    appendInlineMarkdown(beforePrefix, normalBaseStyle);
+                    chatDocument.insertString(chatDocument.getLength(), "\n", normalBaseStyle);
+                    applyContainerAttributes(lineStart, container);
+                }
+
+                String afterPrefix = lineToRender.substring(prefixIndex + THINKING_BLOCK_PREFIX.length());
+                int suffixIndex = afterPrefix.indexOf(THINKING_BLOCK_SUFFIX);
+                if (suffixIndex >= 0) {
+                    String thinkingContent = afterPrefix.substring(0, suffixIndex).trim();
+                    appendThinkingBlock(chatDocument.getLength(), thinkingContent, container);
+                    String trailing = afterPrefix.substring(suffixIndex + THINKING_BLOCK_SUFFIX.length());
+                    if (trailing.trim().isEmpty()) {
+                        continue;
+                    }
+                    lineToRender = trailing;
+                } else {
+                    thinkingContentBuffer.setLength(0);
+                    thinkingContentBuffer.append(afterPrefix);
+                    inThinkingBlock = true;
+                    continue;
+                }
+            }
+
             String trimmed = lineToRender.trim();
 
             int firstNonWhitespace = firstNonWhitespaceIndex(lineToRender);
@@ -359,6 +471,34 @@ public class AIMarkdownRenderer {
                 inUnderscoreItalicBlock = false;
             }
         }
+
+        if (inThinkingBlock && thinkingContentBuffer.length() > 0) {
+            appendThinkingBlock(chatDocument.getLength(), thinkingContentBuffer.toString().trim(), container);
+        }
+    }
+
+    /**
+     * Renders a collapsible thinking block with a clickable header.
+     */
+    private void appendThinkingBlock(int lineStart, String content, SimpleAttributeSet container) throws BadLocationException {
+        int blockId = nextThinkingBlockId++;
+        boolean expanded = thinkingExpandedState.getOrDefault(blockId, Boolean.TRUE);
+
+        String toggleMarker = expanded ? "▼" : "▶";
+        String headerText = toggleMarker + " Thinking\n";
+
+        SimpleAttributeSet headerStyle = new SimpleAttributeSet(chatArea.getStyle("thinking-header"));
+        headerStyle.addAttribute(THINKING_TOGGLE_ATTRIBUTE, Boolean.TRUE);
+        headerStyle.addAttribute(THINKING_ID_ATTRIBUTE, Integer.valueOf(blockId));
+        chatDocument.insertString(chatDocument.getLength(), headerText, headerStyle);
+
+        if (expanded && content != null && !content.isEmpty()) {
+            AttributeSet bodyStyle = combineStyles(createBaseStyle(false), chatArea.getStyle("thinking-body"));
+            appendInlineMarkdown(content, bodyStyle);
+            chatDocument.insertString(chatDocument.getLength(), "\n", bodyStyle);
+        }
+
+        applyContainerAttributes(lineStart, container);
     }
 
     /**
