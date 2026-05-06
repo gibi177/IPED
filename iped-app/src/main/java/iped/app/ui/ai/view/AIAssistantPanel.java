@@ -32,7 +32,6 @@ import iped.engine.search.IPEDSearcher;
 import iped.engine.search.MultiSearchResult;
 import iped.data.IItemId;
 import iped.app.ui.FileProcessor;
-import iped.properties.ExtraProperties;
 
 /**
  * AI Assistant floating panel UI layer for IPED.
@@ -49,7 +48,7 @@ public class AIAssistantPanel {
     private static final int HORIZONTAL_OFFSET = 30;
     private static final int VERTICAL_OFFSET = 120;
     private static final double HEIGHT_PERCENTAGE = 0.8;
-    private static final int PANEL_WIDTH = 550;
+    private static final int PANEL_WIDTH = 750;
     private static final int STREAM_APPEND_DELAY_MS = 30;
     private static final int AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 24;
     private static final int CONTEXT_VISIBLE_ITEMS = 5;
@@ -65,6 +64,7 @@ public class AIAssistantPanel {
     private JButton sendButton;
     private JLabel statusLabel;
     private JProgressBar progressBar;
+
     private AIMarkdownRenderer markdownRenderer;
     private final List<AIChatMessage> finalizedMessages = new ArrayList<>();
     private AIChatMessage draftMessage;
@@ -72,6 +72,11 @@ public class AIAssistantPanel {
     private Timer streamTimer;
     private AIChatMessage streamingMessage;
     private Runnable streamDrainAction;
+
+    // Sidebar components
+    private JSplitPane splitPane;
+    private JPanel sidebarPanel;
+    private JButton newChatButton;
 
     // Service layer that handles business logic and threading
     private AIChatCoordinator coordinator;
@@ -135,8 +140,12 @@ public class AIAssistantPanel {
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
+        // Header
         mainPanel.add(createHeaderPanel(), BorderLayout.NORTH);
 
+        // Chat Workspace
+        JPanel chatWorkspacePanel = new JPanel(new BorderLayout(5, 5));
+        
         JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
         centerPanel.add(createContextSection(), BorderLayout.NORTH);
 
@@ -165,8 +174,20 @@ public class AIAssistantPanel {
         JPanel tasksPanel = createTasksPanel();
         centerPanel.add(tasksPanel, BorderLayout.EAST);
 
-        mainPanel.add(centerPanel, BorderLayout.CENTER);
-        mainPanel.add(createBottomPanel(), BorderLayout.SOUTH);
+        chatWorkspacePanel.add(centerPanel, BorderLayout.CENTER);
+        chatWorkspacePanel.add(createBottomPanel(), BorderLayout.SOUTH);
+
+        // Conversations Sidebar
+        sidebarPanel = createSidebarPanel();
+
+        // The SplitPane connecting them
+        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sidebarPanel, chatWorkspacePanel);
+        splitPane.setContinuousLayout(true);
+        splitPane.setDividerSize(5);
+        splitPane.setBorder(null); // Keep it clean
+        splitPane.setDividerLocation(220); // Default sidebar width
+
+        mainPanel.add(splitPane, BorderLayout.CENTER);
 
         frame.getContentPane().add(mainPanel);
         frame.pack();
@@ -277,23 +298,78 @@ public class AIAssistantPanel {
     private JPanel createHeaderPanel() {
         JPanel headerPanel = new JPanel(new BorderLayout());
 
+        // Toggle Sidebar Button
+        JButton toggleSidebarBtn = new JButton("☰");
+        toggleSidebarBtn.setMargin(new Insets(2, 6, 2, 6));
+        toggleSidebarBtn.setFocusPainted(false);
+        toggleSidebarBtn.setToolTipText("Toggle Sidebar");
+        toggleSidebarBtn.addActionListener(e -> toggleSidebar());
+
         String titleText = "AI Assistant";
         try { titleText = Messages.getString("AIAssistant.Title"); } catch (Exception e) {}
         JLabel titleLabel = new JLabel(titleText);
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
 
-        // Update status label to indicate live connection
         statusLabel = new JLabel("● Connected to local backend server");
         statusLabel.setForeground(new Color(0, 150, 0)); // Green for active
 
-        JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.add(titleLabel, BorderLayout.NORTH);
+        // Group toggle button and title
+        JPanel titleArea = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        titleArea.add(toggleSidebarBtn);
+        titleArea.add(titleLabel);
+
+        JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
+        leftPanel.add(titleArea, BorderLayout.NORTH);
         leftPanel.add(statusLabel, BorderLayout.SOUTH);
 
         headerPanel.add(leftPanel, BorderLayout.WEST);
         headerPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.LIGHT_GRAY));
 
         return headerPanel;
+    }
+
+    private JPanel createSidebarPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
+        panel.setMinimumSize(new Dimension(150, 0)); // Prevent crushing it too small
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5)); 
+
+        newChatButton = new JButton("+ New Chat");
+        newChatButton.setFont(newChatButton.getFont().deriveFont(Font.BOLD));
+        newChatButton.addActionListener(e -> startNewChat());
+        
+        panel.add(newChatButton, BorderLayout.NORTH);
+
+        // Placeholder for future step: JList of past conversations
+        JLabel placeholder = new JLabel("Chat history loading...", SwingConstants.CENTER);
+        placeholder.setForeground(Color.GRAY);
+        panel.add(placeholder, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    private void toggleSidebar() {
+        if (sidebarPanel.isVisible()) {
+            sidebarPanel.setVisible(false);
+            splitPane.setDividerLocation(0);
+            splitPane.setDividerSize(0);
+        } else {
+            sidebarPanel.setVisible(true);
+            splitPane.setDividerSize(5);
+            splitPane.setDividerLocation(220);
+        }
+    }
+
+    private void startNewChat() {
+        // Clear UI and Coordinator memory
+        clearChatHistory();
+        
+        // Clear IPED context
+        AIContextManager.getInstance().clearContext();
+        
+        // In future step, ask ConversationManager to create a new active Conversation here
+        
+        addMessage("System", "Started a new conversation session.");
+        inputArea.requestFocusInWindow();
     }
 
     private JPanel createContextSection() {
