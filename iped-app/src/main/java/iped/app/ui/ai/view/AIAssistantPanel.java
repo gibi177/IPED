@@ -25,6 +25,7 @@ import iped.app.ui.ai.model.Conversation;
 import iped.app.ui.ai.context.AIContextManager;
 import iped.app.ui.ai.context.ContextChangeEvent;
 import iped.app.ui.ai.context.ContextChangeListener;
+import iped.app.ui.ai.context.ConversationManager;
 import iped.app.ui.ai.backend.AIBackendClient;
 import iped.app.ui.ai.backend.AIBackendConfig;
 
@@ -385,6 +386,14 @@ public class AIAssistantPanel {
         }
     }
 
+    private void refreshSidebarList() {
+        conversationListModel.clear();
+        for (Conversation conv : ConversationManager.getInstance().getConversations()) {
+            conversationListModel.addElement(conv);
+        }
+        conversationList.repaint();
+    }
+
     private void startNewChat() {
         // Clear UI and Coordinator memory
         clearChatHistory();
@@ -392,7 +401,9 @@ public class AIAssistantPanel {
         // Clear IPED context
         AIContextManager.getInstance().clearContext();
         
-        // In future step, ask ConversationManager to create a new active Conversation here
+        // Create a new active conversation in memory
+        ConversationManager.getInstance().startNewConversation();
+        refreshSidebarList();
         
         addMessage("System", "Started a new conversation session.");
         inputArea.requestFocusInWindow();
@@ -900,6 +911,11 @@ public class AIAssistantPanel {
             // Print user message immediately
             addMessage("You", text, "user");
             inputArea.setText("");
+
+            // Push message to the manager
+            ConversationManager.getInstance().addMessageToActive(
+                AIChatMessage.now("You", text, "user")
+            );
             
             // Lock the UI
             setProcessing(true);
@@ -920,16 +936,16 @@ public class AIAssistantPanel {
                 () -> javax.swing.SwingUtilities.invokeLater(() -> {
                     completeStreaming(() -> {
                         if (assistantDraft.getContent().isEmpty()) {
-                            if (markdownRenderer != null) {
-                                markdownRenderer.discardDraft();
-                            }
+                            if (markdownRenderer != null) markdownRenderer.discardDraft();
                             draftMessage = null;
                         } else {
                             finalizedMessages.add(assistantDraft);
-                            if (markdownRenderer != null) {
-                                markdownRenderer.commitDraft();
-                            }
+                            if (markdownRenderer != null) markdownRenderer.commitDraft();
                             draftMessage = null;
+                            
+                            // Save the LLM's answer to active conversation state
+                            ConversationManager.getInstance().addMessageToActive(assistantDraft);
+                            refreshSidebarList();
                         }
                         setProcessing(false);
                     });
