@@ -394,15 +394,17 @@ public class AIAssistantPanel {
     }
 
     private void startNewChat() {
+        // Create a new active conversation in memory first (safeguards the old one)
+        ConversationManager.getInstance().startNewConversation();
+        
         // Clear UI and Coordinator memory
-        clearChatHistory();
+        clearChatScreenAndMemory();
         
         // Clear IPED context
         AIContextManager.getInstance().clearContext();
         
-        // Create a new active conversation in memory
-        ConversationManager.getInstance().startNewConversation();
         refreshSidebarList();
+        refreshChatArea();
         
         addMessage("System", "Started a new conversation session.");
         inputArea.requestFocusInWindow();
@@ -610,30 +612,61 @@ public class AIAssistantPanel {
         JButton clearChatButton = new JButton("Clear Chat History");
         clearChatButton.setAlignmentX(Component.CENTER_ALIGNMENT);
         clearChatButton.setMaximumSize(new Dimension(200, 30));
-        clearChatButton.addActionListener(e -> clearChatHistory());
+        clearChatButton.addActionListener(e -> clearCurrentChat());
         panel.add(clearChatButton);
         
         return panel;
     }
     
-    // Action Button to clear the chat history, resetting the conversation and UI to a clean state
-    private void clearChatHistory() {
+    /**
+     * Triggered by the Quick Actions panel. Erases the current conversation's history.
+     * Permanently erases the messages in this specific chat
+     */
+    private void clearCurrentChat() {
+        Conversation activeConv = ConversationManager.getInstance().getActiveConversation();
+
+        // Reset the title so the next user message triggers the title auto-generator
+        activeConv.setTitle("New Conversation");
+        activeConv.updateLastModified();
+
+        // Delete the data from the Active Conversation model 
+        activeConv.getMessages().clear();
+        
+        // Wipe the backend session markers so it truly starts fresh
+        activeConv.getChatHashes().clear();
+        activeConv.getContextIds().clear();
+            
+        // Wipe the screen and coordinator memory
+        clearChatScreenAndMemory();
+        
+        refreshSidebarList();
+        refreshChatArea();
+        
+        addMessage("System", "Current chat history cleared.");
+        inputArea.requestFocusInWindow();
+    }
+
+    /**
+     * Clears the UI and the Coordinator's memory. 
+     * Does NOT delete the saved messages in the ConversationManager.
+     */
+    private void clearChatScreenAndMemory() {
         draftMessage = null;
         
-        // Tell the manager to wipe the messages for this conversation
-        ConversationManager.getInstance().getActiveConversation().getMessages().clear();
-        
+        // Wipe the Coordinator's memory so the LLM forgets the previous context
         if (coordinator != null) {
             coordinator.clearHistory();
         }
         
+        // Wipe the UI screen
         try {
+            if (markdownRenderer != null) {
+                markdownRenderer.commitDraft(); // Resets anchor to -1
+            }
             chatDocument.remove(0, chatDocument.getLength());
         } catch (BadLocationException e) {
             System.err.println("Error clearing chat document: " + e.getMessage());
         }
-        
-        refreshChatArea();
     }
 
     private JPanel createBottomPanel() {
