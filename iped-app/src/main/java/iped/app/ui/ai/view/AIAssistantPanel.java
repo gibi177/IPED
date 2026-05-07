@@ -21,6 +21,7 @@ import javax.swing.text.StyledDocument;
 import iped.app.ui.ai.AIChatCoordinator;
 import iped.app.ui.ai.model.AIChatMessage;
 import iped.app.ui.ai.model.ContextFileEntry;
+import iped.app.ui.ai.model.Conversation;
 import iped.app.ui.ai.context.AIContextManager;
 import iped.app.ui.ai.context.ContextChangeEvent;
 import iped.app.ui.ai.context.ContextChangeListener;
@@ -79,6 +80,8 @@ public class AIAssistantPanel {
     private JSplitPane splitPane;
     private JPanel sidebarPanel;
     private JButton newChatButton;
+    private JList<Conversation> conversationList;
+    private DefaultListModel<Conversation> conversationListModel;
 
     // Service layer that handles business logic and threading
     private AIChatCoordinator coordinator;
@@ -332,7 +335,7 @@ public class AIAssistantPanel {
 
     private JPanel createSidebarPanel() {
         JPanel panel = new JPanel(new BorderLayout(0, 5));
-        panel.setMinimumSize(new Dimension(150, 0)); // Prevent crushing it too small
+        panel.setMinimumSize(new Dimension(150, 0)); 
         panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5)); 
 
         newChatButton = new JButton("+ New Chat");
@@ -341,10 +344,31 @@ public class AIAssistantPanel {
         
         panel.add(newChatButton, BorderLayout.NORTH);
 
-        // Placeholder for future step: JList of past conversations
-        JLabel placeholder = new JLabel("Chat history loading...", SwingConstants.CENTER);
-        placeholder.setForeground(Color.GRAY);
-        panel.add(placeholder, BorderLayout.CENTER);
+        // Conversation List UI
+        conversationListModel = new DefaultListModel<>();
+        conversationList = new JList<>(conversationListModel);
+        conversationList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        
+        // Custom Renderer to make the items look like modern chat tabs
+        conversationList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
+            JLabel label = (JLabel) new DefaultListCellRenderer()
+                    .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
+            
+            if (value instanceof Conversation) {
+                Conversation conv = (Conversation) value;
+                label.setText(conv.getTitle());
+                
+                // Add padding to make the row taller and easier to click
+                label.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+            }
+            return label;
+        });
+
+        // Hide the scrollpane borders to blend seamlessly into the sidebar
+        JScrollPane scrollPane = new JScrollPane(conversationList);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder()); 
+        
+        panel.add(scrollPane, BorderLayout.CENTER);
 
         return panel;
     }
