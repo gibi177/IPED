@@ -70,7 +70,6 @@ public class AIAssistantPanel {
     private JProgressBar progressBar;
 
     private AIMarkdownRenderer markdownRenderer;
-    private final List<AIChatMessage> finalizedMessages = new ArrayList<>();
     private AIChatMessage draftMessage;
     private final List<String> streamQueue = new ArrayList<>();
     private Timer streamTimer;
@@ -619,10 +618,11 @@ public class AIAssistantPanel {
     
     // Action Button to clear the chat history, resetting the conversation and UI to a clean state
     private void clearChatHistory() {
-        finalizedMessages.clear();
         draftMessage = null;
         
-        // Wipe the Coordinator's memory
+        // Tell the manager to wipe the messages for this conversation
+        ConversationManager.getInstance().getActiveConversation().getMessages().clear();
+        
         if (coordinator != null) {
             coordinator.clearHistory();
         }
@@ -744,7 +744,9 @@ public class AIAssistantPanel {
 
     private void addMessage(String sender, String message, String type) {
         AIChatMessage chatMessage = AIChatMessage.now(sender, message, type);
-        finalizedMessages.add(chatMessage);
+        
+        // Let the Manager hold the data
+        ConversationManager.getInstance().addMessageToActive(chatMessage);
 
         if (markdownRenderer != null) {
             appendFinalizedMessage(chatMessage);
@@ -753,16 +755,19 @@ public class AIAssistantPanel {
         }
     }
 
+    private void addMessage(String sender, String message) {
+        addMessage(sender, message, "system");
+    }
+
     private List<AIChatMessage> buildRenderableMessages() {
-        List<AIChatMessage> renderableMessages = new ArrayList<>(finalizedMessages);
+        // Renderable messages are the messages in the current active conversation
+        List<AIChatMessage> renderableMessages = new ArrayList<>(
+            ConversationManager.getInstance().getActiveConversation().getMessages()
+        );
         if (draftMessage != null) {
             renderableMessages.add(draftMessage);
         }
         return renderableMessages;
-    }
-
-    private void addMessage(String sender, String message) {
-        addMessage(sender, message, "system");
     }
 
     private void positionDialog() {
@@ -939,7 +944,6 @@ public class AIAssistantPanel {
                             if (markdownRenderer != null) markdownRenderer.discardDraft();
                             draftMessage = null;
                         } else {
-                            finalizedMessages.add(assistantDraft);
                             if (markdownRenderer != null) markdownRenderer.commitDraft();
                             draftMessage = null;
                             
