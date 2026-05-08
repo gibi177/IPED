@@ -493,9 +493,11 @@ public class AIMarkdownRenderer {
         chatDocument.insertString(chatDocument.getLength(), headerText, headerStyle);
 
         if (expanded && content != null && !content.isEmpty()) {
-            AttributeSet bodyStyle = combineStyles(createBaseStyle(false), chatArea.getStyle("thinking-body"));
-            appendInlineMarkdown(content, bodyStyle);
-            chatDocument.insertString(chatDocument.getLength(), "\n", bodyStyle);
+            // Create a container with thinking-body styling and render markdown
+            SimpleAttributeSet thinkingContainer = new SimpleAttributeSet();
+            StyleConstants.setBackground(thinkingContainer, StyleConstants.getBackground(chatArea.getStyle("thinking-body")));
+            StyleConstants.setForeground(thinkingContainer, StyleConstants.getForeground(chatArea.getStyle("thinking-body")));
+            appendMarkdown(content, thinkingContainer);
         }
 
         applyContainerAttributes(lineStart, container);

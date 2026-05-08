@@ -160,6 +160,7 @@ public class AIBackendClient implements AIBackendService {
 
                 // Add a flag to track the first final token
                 boolean isFirstFinalToken = true;
+                boolean isThinkingBlockOpen = false;
                 
                 // Blocks here until a new line arrives over the network, then processes it
                 while ((line = reader.readLine()) != null) {
@@ -174,7 +175,16 @@ public class AIBackendClient implements AIBackendService {
                         JsonObject eventObj = JsonParser.parseString(jsonData).getAsJsonObject();
                         String type = eventObj.has("type") ? eventObj.get("type").getAsString() : "";
                         
-                        // Isolate the actual content
+                        // Handle thinking_done which has no content field
+                        if (type.equals("thinking_done")) {
+                            if (isThinkingBlockOpen) {
+                                eventHandler.accept(THINKING_BLOCK_SUFFIX + "\n");
+                                isThinkingBlockOpen = false;
+                            }
+                            continue;
+                        }
+                        
+                        // Isolate the actual content for other event types
                         if (eventObj.has("content")) {
                             String content = eventObj.get("content").getAsString();
                             
@@ -182,10 +192,14 @@ public class AIBackendClient implements AIBackendService {
                                 // Format metadata in italics for the UI, with explicit 'status' indication
                                 eventHandler.accept("\n_**[Status]:** " + content + "_\n");
                             } else if (type.equals("thinking")) {
-                                // Emit a dedicated block marker to avoid markdown parsing conflicts
-                                eventHandler.accept("\n" + THINKING_BLOCK_PREFIX + content + THINKING_BLOCK_SUFFIX + "\n");
-                            } else if (type.equals("final")) {
+                                if (!isThinkingBlockOpen) {
+                                    // Emit a dedicated block marker to avoid markdown parsing conflicts
+                                    eventHandler.accept("\n" + THINKING_BLOCK_PREFIX);
+                                    isThinkingBlockOpen = true;
+                                }
 
+                                eventHandler.accept(content);
+                            } else if (type.equals("final")) {
                                 // Check the flag before appending
                                 if (isFirstFinalToken) {
                                     eventHandler.accept("\n" + content); // Add newline for the first word
@@ -291,6 +305,7 @@ public class AIBackendClient implements AIBackendService {
 
                 // Add a flag to track the first final token
                 boolean isFirstFinalToken = true;
+                boolean isThinkingBlockOpen = false;
 
                 while ((line = reader.readLine()) != null) {
                     if (line.startsWith("data: ")) {
@@ -301,6 +316,15 @@ public class AIBackendClient implements AIBackendService {
                         JsonObject eventObj = JsonParser.parseString(jsonData).getAsJsonObject();
                         String type = eventObj.has("type") ? eventObj.get("type").getAsString() : "";
                         
+                        // Handle thinking_done which has no content field
+                        if (type.equals("thinking_done")) {
+                            if (isThinkingBlockOpen) {
+                                eventHandler.accept(THINKING_BLOCK_SUFFIX + "\n");
+                                isThinkingBlockOpen = false;
+                            }
+                            continue;
+                        }
+                        
                         if (eventObj.has("content")) {
                             String content = eventObj.get("content").getAsString();
                             
@@ -308,10 +332,14 @@ public class AIBackendClient implements AIBackendService {
                                 // Format metadata in italics for the UI, with explicit 'status' indication
                                 eventHandler.accept("\n_**[Status]:** " + content + "_\n");
                             } else if (type.equals("thinking")) {
-                                // Emit a dedicated block marker to avoid markdown parsing conflicts
-                                eventHandler.accept("\n" + THINKING_BLOCK_PREFIX + content + THINKING_BLOCK_SUFFIX + "\n");
-                            } else if (type.equals("final")) {
+                                if (!isThinkingBlockOpen) {
+                                    // Emit a dedicated block marker to avoid markdown parsing conflicts
+                                    eventHandler.accept("\n" + THINKING_BLOCK_PREFIX);
+                                    isThinkingBlockOpen = true;
+                                }
 
+                                eventHandler.accept(content);
+                            } else if (type.equals("final")) {
                                 // Check the flag before appending
                                 if (isFirstFinalToken) {
                                     eventHandler.accept("\n" + content); // Add newline for the first word
