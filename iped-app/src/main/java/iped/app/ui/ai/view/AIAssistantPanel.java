@@ -364,6 +364,25 @@ public class AIAssistantPanel {
             return label;
         });
 
+        // Wire up the click listener for the sidebar tabs
+        conversationList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) return;
+                
+                int index = conversationList.locationToIndex(e.getPoint());
+                if (index < 0) return;
+                
+                Conversation selected = conversationListModel.getElementAt(index);
+                Conversation active = ConversationManager.getInstance().getActiveConversation();
+                
+                // Only load if they clicked a different conversation
+                if (selected != null && (active == null || !active.getId().equals(selected.getId()))) {
+                    loadConversation(selected);
+                }
+            }
+        });
+
         // Hide the scrollpane borders to blend seamlessly into the sidebar
         JScrollPane scrollPane = new JScrollPane(conversationList);
         scrollPane.setBorder(BorderFactory.createEmptyBorder()); 
@@ -408,6 +427,66 @@ public class AIAssistantPanel {
         
         addMessage("System", "Started a new conversation session.");
         inputArea.requestFocusInWindow();
+    }
+
+    /**
+     * Loads a selected conversation from the sidebar into the main chat window.
+     */
+    private void loadConversation(Conversation conv) {
+        // Update State Manager
+        ConversationManager.getInstance().setActiveConversation(conv);
+        
+        // Hydrate the Coordinator's Network Memory
+        if (coordinator != null) {
+            coordinator.loadHistoricalContext(conv.getChatHashes(), conv.getContextIds(), conv.getMessages());
+        }
+        
+        // Restore the visual IPED Context UI 
+        AIContextManager.getInstance().clearContext(); // Wipe previous chat's files
+        
+        new Thread(() -> {
+            List<IItem> restoredItems = new ArrayList<>();
+
+            if (conv.getContextIds() != null) {
+                for (Integer itemId : conv.getContextIds()) {
+                    try {
+                        // Use the searcher to find the item across all loaded evidence sources
+                        IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "id:" + itemId);
+                        MultiSearchResult result = searcher.multiSearch();
+                        
+                        if (result != null && result.getLength() > 0) {
+                            // Extract the fully qualified IItemId (which contains the source routing)
+                            IItemId qualifiedItemId = result.getItem(0);
+                            
+                            // Now the MultiSource can safely fetch the item!
+                            IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
+                            if (item != null) {
+                                restoredItems.add(item);
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Could not restore context item ID: " + itemId);
+                    }
+                }
+            }
+
+            // Push the items back into the visual sidebar safely on the UI thread
+            if (!restoredItems.isEmpty()) {
+                SwingUtilities.invokeLater(() -> {
+                    AIContextManager.getInstance().addContextFiles(restoredItems);
+                });
+            }
+        }).start();
+        
+        // Reset UI streaming states
+        draftMessage = null;
+        if (markdownRenderer != null) {
+            markdownRenderer.commitDraft(); 
+        }
+        
+        // Redraw the screen
+        refreshChatArea();
+        conversationList.setSelectedValue(conv, true);
     }
 
     private JPanel createContextSection() {

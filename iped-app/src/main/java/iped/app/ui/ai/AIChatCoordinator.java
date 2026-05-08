@@ -6,7 +6,10 @@ import iped.app.ui.ai.backend.AIStreamChatRequest;
 import iped.app.ui.ai.util.AIWhatsappChatExtractor;
 import iped.app.ui.ai.util.AIPayloadFactory;
 import iped.app.ui.ai.model.ContextFileEntry;
+import iped.app.ui.ai.model.AIChatMessage;
+import iped.app.ui.ai.model.Conversation;
 import iped.app.ui.ai.context.AIContextManager;
+import iped.app.ui.ai.context.ConversationManager;
 import iped.data.IItem;
 
 import java.util.ArrayList;
@@ -44,8 +47,8 @@ public class AIChatCoordinator {
     }
 
     /**
-     * Executes the complete AI request pipeline: validates the selected file, 
-     * uploads the context (if necessary), and streams the AI's response.
+     * Executes the complete AI request pipeline: validates the selected files,
+     * initializes or reuses the chat context (if unchanged), and streams the AI's response.
      * @param question   The text prompt from the user
      * @param uiCallback A callback used to push status updates and streamed text back to the UI
      * @param onComplete A callback triggered when the entire process finishes (success or fail),
@@ -60,6 +63,8 @@ public class AIChatCoordinator {
                 .filter(ContextFileEntry::isValidForContext)
                 .collect(Collectors.toList());
 
+        // If a question is typed before the background thread finishes restoring the UI, 
+        // this safely blocks the user for that fraction of a second.
         if (validEntries.isEmpty()) {
             onError.accept("Please, add at least one valid file to context before asking.");
             return;
@@ -69,6 +74,8 @@ public class AIChatCoordinator {
         List<Integer> newContextIds = validEntries.stream()
                 .map(e -> e.getItem().getId())
                 .collect(Collectors.toList());
+
+        // Since the UI was restored, this evaluates to false
         boolean contextChanged = !newContextIds.equals(currentContextItemIds);
 
         // Offload heavy lifting to a background thread
@@ -95,24 +102,34 @@ public class AIChatCoordinator {
                     
                     // Update cache state
                     currentContextItemIds = newContextIds; 
+
+                    // Save the backend state to the Conversation Manager so it persists
+                    Conversation activeConv = ConversationManager.getInstance().getActiveConversation();
+                    if (activeConv != null) {
+                        activeConv.setContextIds(new ArrayList<>(currentContextItemIds));
+                        activeConv.setChatHashes(new ArrayList<>(currentChatHashes));
+                        activeConv.updateLastModified();
+                    }
                 }
 
                 // Step B: Stream the response
                 StringBuilder fullResponse = new StringBuilder(); 
-
+                
                 // Route to the correct streaming endpoint
-                if (validEntries.size() == 1) {
+                if (currentChatHashes.size() == 1) {
                     // Single chat stream
                     backendService.streamChatResponse(currentChatHashes.get(0), question, chatHistory, token -> {
                         uiCallback.accept(token);
                         fullResponse.append(token);
                     });
-                } else {
+                } else if (currentChatHashes.size() > 1) {
                     // Multi chat stream
                     backendService.streamMultiChatResponse(currentChatHashes, question, chatHistory, token -> {
                         uiCallback.accept(token);
                         fullResponse.append(token);
                     });
+                } else {
+                    throw new IllegalStateException("Cannot stream response: No active chat hashes found.");
                 }
 
                 uiCallback.accept("\n\n");
@@ -139,5 +156,31 @@ public class AIChatCoordinator {
         // Also clear chat currentChatHashes and currentContextItemIds
         currentChatHashes.clear();
         currentContextItemIds.clear();
+    }
+
+    /**
+     * Hydrates the coordinator's memory with historical state, allowing the LLM 
+     * to resume a previous conversation seamlessly without re-uploading files.
+     */
+    public void loadHistoricalContext(List<String> hashes, List<Integer> itemIds, List<AIChatMessage> uiMessages) {
+        // Restore backend session hashes
+        this.currentChatHashes.clear();
+        if (hashes != null) this.currentChatHashes.addAll(hashes);
+        
+        // Restore IPED context IDs
+        this.currentContextItemIds.clear();
+        if (itemIds != null) this.currentContextItemIds.addAll(itemIds);
+        
+        // Restore the LLM conversation memory
+        this.chatHistory.clear();
+        if (uiMessages != null) {
+            for (AIChatMessage msg : uiMessages) {
+                // The backend only wants to remember user and assistant turns.
+                // We do NOT send "system" or "error" messages back to the LLM.
+                if ("user".equals(msg.getType()) || "assistant".equals(msg.getType())) {
+                    this.chatHistory.add(new AIStreamChatRequest.AIMessage(msg.getType(), msg.getContent()));
+                }
+            }
+        }
     }
 }
