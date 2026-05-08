@@ -217,6 +217,7 @@ public class AIMarkdownRenderer {
         Style heading = chatArea.addStyle("heading", base);
         StyleConstants.setBold(heading, true);
         StyleConstants.setFontSize(heading, 14);
+        StyleConstants.setForeground(heading, new java.awt.Color(0x1a, 0x56, 0xb3));
         chatStyles.put("heading", heading);
 
         Style bold = chatArea.addStyle("bold", base);
@@ -297,7 +298,7 @@ public class AIMarkdownRenderer {
     /**
      * Writes message content using the markdown-aware renderer.
      */
-    private void appendMessageContent(String content, SimpleAttributeSet container) throws BadLocationException {
+    private void appendMessageContent(String content, AttributeSet container) throws BadLocationException {
         appendMarkdown(content == null ? "" : content, container);
     }
 
@@ -311,10 +312,10 @@ public class AIMarkdownRenderer {
     /**
      * Renders markdown line by line and applies paragraph/container attributes.
      */
-    private void appendMarkdown(String markdown, SimpleAttributeSet container) throws BadLocationException {
+    private void appendMarkdown(String markdown, AttributeSet container) throws BadLocationException {
         String normalizedMarkdown = markdown.replace("\r\n", "\n").replace('\r', '\n');
-        AttributeSet normalBaseStyle = createBaseStyle(false);
-        AttributeSet italicBaseStyle = createBaseStyle(true);
+        AttributeSet normalBaseStyle = combineStyles(createBaseStyle(false), container);
+        AttributeSet italicBaseStyle = combineStyles(createBaseStyle(true), container);
         String[] lines = normalizedMarkdown.split("\n", -1);
         boolean inUnderscoreItalicBlock = false;
         boolean inThinkingBlock = false;
@@ -480,7 +481,7 @@ public class AIMarkdownRenderer {
     /**
      * Renders a collapsible thinking block with a clickable header.
      */
-    private void appendThinkingBlock(int lineStart, String content, SimpleAttributeSet container) throws BadLocationException {
+    private void appendThinkingBlock(int lineStart, String content, AttributeSet container) throws BadLocationException {
         int blockId = nextThinkingBlockId++;
         boolean expanded = thinkingExpandedState.getOrDefault(blockId, Boolean.TRUE);
 
@@ -493,14 +494,9 @@ public class AIMarkdownRenderer {
         chatDocument.insertString(chatDocument.getLength(), headerText, headerStyle);
 
         if (expanded && content != null && !content.isEmpty()) {
-            // Create a container with thinking-body styling and render markdown
-            SimpleAttributeSet thinkingContainer = new SimpleAttributeSet();
-            StyleConstants.setBackground(thinkingContainer, StyleConstants.getBackground(chatArea.getStyle("thinking-body")));
-            StyleConstants.setForeground(thinkingContainer, StyleConstants.getForeground(chatArea.getStyle("thinking-body")));
+            AttributeSet thinkingContainer = combineStyles(createBaseStyle(false), chatArea.getStyle("thinking-body"));
             appendMarkdown(content, thinkingContainer);
         }
-
-        applyContainerAttributes(lineStart, container);
     }
 
     /**
@@ -548,7 +544,7 @@ public class AIMarkdownRenderer {
     /**
      * Applies container attributes to both paragraph and character ranges.
      */
-    private void applyContainerAttributes(int start, SimpleAttributeSet container) throws BadLocationException {
+    private void applyContainerAttributes(int start, AttributeSet container) throws BadLocationException {
         chatDocument.setParagraphAttributes(start, chatDocument.getLength() - start, container, false);
         chatDocument.setCharacterAttributes(start, chatDocument.getLength() - start, container, false);
     }
@@ -771,8 +767,9 @@ public class AIMarkdownRenderer {
      * Writes a chunk token using a dedicated clickable style and embedded metadata.
      */
     private void appendToken(String visibleText, String hash, String chunkId, AttributeSet baseStyle) throws BadLocationException {
-        SimpleAttributeSet tokenStyle = new SimpleAttributeSet(chatArea.getStyle("token"));
+        SimpleAttributeSet tokenStyle = new SimpleAttributeSet();
         tokenStyle.addAttributes(baseStyle);
+        tokenStyle.addAttributes(chatArea.getStyle("token"));
         tokenStyle.addAttribute(TOKEN_ATTRIBUTE, Boolean.TRUE);
         tokenStyle.addAttribute(TOKEN_HASH_ATTRIBUTE, hash);
         tokenStyle.addAttribute(TOKEN_CHUNK_ID_ATTRIBUTE, chunkId);
