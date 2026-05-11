@@ -217,18 +217,21 @@ public class AIAssistantPanel {
                 javax.swing.text.Element element = chatDocument.getCharacterElement(offset);
                 javax.swing.text.AttributeSet attributes = element.getAttributes();
                 Object tokenFlag = attributes.getAttribute(AIMarkdownRenderer.TOKEN_ATTRIBUTE);
-                if (!Boolean.TRUE.equals(tokenFlag)) {
+                if (Boolean.TRUE.equals(tokenFlag)) {
+                    int start = element.getStartOffset();
+                    int end = element.getEndOffset();
+                    chatArea.setSelectionStart(start);
+                    chatArea.setSelectionEnd(Math.max(start, end));
+
+                    Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
+                    Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
+                    navigateToItem(String.valueOf(hash), String.valueOf(chunkId));
                     return;
                 }
 
-                int start = element.getStartOffset();
-                int end = element.getEndOffset();
-                chatArea.setSelectionStart(start);
-                chatArea.setSelectionEnd(Math.max(start, end));
-
-                Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
-                Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
-                navigateToItem(String.valueOf(hash), String.valueOf(chunkId));
+                if (markdownRenderer != null && markdownRenderer.toggleThinkingAtOffset(offset)) {
+                    refreshChatArea();
+                }
             }
         });
     }
