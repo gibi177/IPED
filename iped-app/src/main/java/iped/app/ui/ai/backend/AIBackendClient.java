@@ -16,6 +16,8 @@ import java.time.Duration;
 import java.util.function.Consumer;
 import java.util.List;
 import java.util.ArrayList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Concrete implementation of {@link AIBackendService} responsible for handling
@@ -100,7 +102,7 @@ public class AIBackendClient implements AIBackendService {
 
             // Parse the JSON response
             JsonObject responseJson = JsonParser.parseString(response.body()).getAsJsonObject();
-            
+
             // Check backend level error
             if (responseJson.has("error")) {
                 throw new AIBackendException("Backend Error: " + responseJson.get("error").getAsString());
@@ -202,10 +204,10 @@ public class AIBackendClient implements AIBackendService {
                             } else if (type.equals("final")) {
                                 // Check the flag before appending
                                 if (isFirstFinalToken) {
-                                    eventHandler.accept("\n" + content); // Add newline for the first word
-                                    isFirstFinalToken = false;           // Turn the flag off
+                                    eventHandler.accept("\n**[FINAL ANSWER]:**\n" + content);
+                                    isFirstFinalToken = false;
                                 } else {
-                                    eventHandler.accept(content);        // Print normally for the rest
+                                    eventHandler.accept(content);
                                 }
                             } else if (type.equals("error")) {
                                 throw new AIBackendException("Backend Streaming Error: " + content);
@@ -298,7 +300,7 @@ public class AIBackendClient implements AIBackendService {
             if (response.statusCode() != 200) {
                 throw new AIBackendException("Backend returned HTTP " + response.statusCode());
             }
-
+            
             // The SSE parsing logic is identical to the single-chat stream
             try (BufferedReader reader = new BufferedReader(new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
                 String line;
@@ -342,11 +344,11 @@ public class AIBackendClient implements AIBackendService {
                             } else if (type.equals("final")) {
                                 // Check the flag before appending
                                 if (isFirstFinalToken) {
-                                    eventHandler.accept("\n" + content); // Add newline for the first word
-                                    isFirstFinalToken = false;           // Turn the flag off
+                                    eventHandler.accept("\n**[FINAL ANSWER]:**\n" + content);
+                                    isFirstFinalToken = false;
                                 } else {
-                                    eventHandler.accept(content);        // Print normally for the rest
-                                }
+                                    eventHandler.accept(content);
+                                }   
                             } else if (type.equals("error")) {
                                 throw new AIBackendException("Backend Streaming Error: " + content);
                             }
