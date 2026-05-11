@@ -506,25 +506,25 @@ public class AIAssistantPanel {
         new Thread(() -> {
             List<IItem> restoredItems = new ArrayList<>();
 
-            if (conv.getContextIds() != null) {
-                for (Integer itemId : conv.getContextIds()) {
+            // Use the MD5 Chat Hashes to find the file
+            if (conv.getChatHashes() != null) {
+                for (String hash : conv.getChatHashes()) {
                     try {
-                        // Use the searcher to find the item across all loaded evidence sources
-                        IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "id:" + itemId);
+                        IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "hash:" + hash);
                         MultiSearchResult result = searcher.multiSearch();
                         
                         if (result != null && result.getLength() > 0) {
                             // Extract the fully qualified IItemId (which contains the source routing)
                             IItemId qualifiedItemId = result.getItem(0);
-                            
-                            // Now the MultiSource can safely fetch the item!
+
+                            // Now the MultiSource can safely fetch the item
                             IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
                             if (item != null) {
                                 restoredItems.add(item);
                             }
                         }
                     } catch (Exception e) {
-                        System.err.println("Could not restore context item ID: " + itemId);
+                        System.err.println("Could not restore context item hash: " + hash);
                     }
                 }
             }
@@ -532,6 +532,24 @@ public class AIAssistantPanel {
             // Push the items back into the visual sidebar safely on the UI thread
             if (!restoredItems.isEmpty()) {
                 SwingUtilities.invokeLater(() -> {
+                    // Check race condition: Did the user click a different chat while the search is ongoing?
+                    Conversation currentActive = ConversationManager.getInstance().getActiveConversation();
+                    if (currentActive == null || !currentActive.getId().equals(conv.getId())) {
+                        return; // Abort
+                    }
+
+                    // Update the Coordinator's memory with the freshly fetched IDs just in case
+                    // the database was rebuilt and the integer IDs changed
+                    List<Integer> freshIds = restoredItems.stream()
+                            .map(IItem::getId)
+                            .collect(java.util.stream.Collectors.toList());
+                    
+                    if (coordinator != null) {
+                        // Re-sync the coordinator to prevent a false "contextChanged" flag
+                        coordinator.loadHistoricalContext(conv.getChatHashes(), freshIds, conv.getMessages());
+                    }
+                    
+                    // Restore the visual UI
                     AIContextManager.getInstance().addContextFiles(restoredItems);
                 });
             }
