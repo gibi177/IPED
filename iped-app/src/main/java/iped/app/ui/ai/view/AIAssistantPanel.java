@@ -351,17 +351,27 @@ public class AIAssistantPanel {
         
         // Custom Renderer to make the items look like modern chat tabs
         conversationList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
-            JLabel label = (JLabel) new DefaultListCellRenderer()
-                    .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            
+            JPanel rowPanel = new JPanel(new BorderLayout(8, 0));
+            rowPanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10)); // Padded
+            rowPanel.setOpaque(true);
+            rowPanel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+
             if (value instanceof Conversation) {
                 Conversation conv = (Conversation) value;
-                label.setText(conv.getTitle());
                 
-                // Add padding to make the row taller and easier to click
-                label.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10));
+                JLabel textLabel = new JLabel(conv.getTitle());
+                textLabel.setFont(list.getFont());
+                textLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+                
+                JLabel removeLabel = new JLabel("X");
+                removeLabel.setFont(list.getFont().deriveFont(Font.BOLD));
+                // Only show red 'X' if selected, otherwise subtle gray, to keep UI clean
+                removeLabel.setForeground(isSelected ? new Color(160, 0, 0) : Color.LIGHT_GRAY);
+                
+                rowPanel.add(textLabel, BorderLayout.CENTER);
+                rowPanel.add(removeLabel, BorderLayout.EAST);
             }
-            return label;
+            return rowPanel;
         });
 
         // Wire up the click listener for the sidebar tabs
@@ -373,9 +383,20 @@ public class AIAssistantPanel {
                 int index = conversationList.locationToIndex(e.getPoint());
                 if (index < 0) return;
                 
+                Rectangle cellBounds = conversationList.getCellBounds(index, index);
+                if (cellBounds == null || !cellBounds.contains(e.getPoint())) return;
+
                 Conversation selected = conversationListModel.getElementAt(index);
-                Conversation active = ConversationManager.getInstance().getActiveConversation();
                 
+                // Check if clicked the 'X' hotzone
+                if (e.getX() >= cellBounds.x + cellBounds.width - 28) {
+                    promptDeleteConversation(selected);
+                    return;
+                }
+                
+                // Otherwise, load the conversation
+                Conversation active = ConversationManager.getInstance().getActiveConversation();
+
                 // Only load if they clicked a different conversation
                 if (selected != null && (active == null || !active.getId().equals(selected.getId()))) {
                     loadConversation(selected);
@@ -390,6 +411,44 @@ public class AIAssistantPanel {
         panel.add(scrollPane, BorderLayout.CENTER);
 
         return panel;
+    }
+
+    /**
+     * Confirmation to delete chat when clicking the 'X' on the Conversation list entry
+     */
+    private void promptDeleteConversation(Conversation conv) {
+        int confirm = JOptionPane.showConfirmDialog(frame,
+            "Are you sure you want to delete this chat?\n\"" + conv.getTitle() + "\"",
+            "Delete Chat",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+            
+        if (confirm == JOptionPane.YES_OPTION) {
+            // Remove from memory
+            ConversationManager.getInstance().removeConversation(conv);
+            
+            // Check if the chat currently being looked at was deleted
+            Conversation active = ConversationManager.getInstance().getActiveConversation();
+            if (active == null || active.getId().equals(conv.getId())) {
+                List<Conversation> remaining = ConversationManager.getInstance().getConversations();
+                
+                if (!remaining.isEmpty()) {
+                    // Option A: Load the conversation at the top of the list
+                    loadConversation(remaining.get(0));
+                    refreshSidebarList();
+                } else {
+                    // Option B: The list is completely empty
+                    ConversationManager.getInstance().setActiveConversation(null);
+                    clearChatScreenAndMemory();
+                    AIContextManager.getInstance().clearContext();
+                    refreshSidebarList();
+                }
+            } else {
+                refreshSidebarList(); // Just removes it visually from the sidebar
+            }
+            
+            // TODO: add the code here to delete the actual JSON file from the disk, when that is available
+        }
     }
 
     private void toggleSidebar() {
@@ -680,51 +739,9 @@ public class AIAssistantPanel {
             panel.add(Box.createVerticalStrut(5));
         }
         
-        // Add separator
-        panel.add(Box.createVerticalStrut(10));
-        JSeparator separator = new JSeparator();
-        separator.setMaximumSize(new Dimension(200, 1));
-        panel.add(separator);
-        panel.add(Box.createVerticalStrut(5));
-        
-        // Clear Chat History button
-        JButton clearChatButton = new JButton("Clear Chat History");
-        clearChatButton.setAlignmentX(Component.CENTER_ALIGNMENT);
-        clearChatButton.setMaximumSize(new Dimension(200, 30));
-        clearChatButton.addActionListener(e -> clearCurrentChat());
-        panel.add(clearChatButton);
-        
         return panel;
     }
     
-    /**
-     * Triggered by the Quick Actions panel. Erases the current conversation's history.
-     * Permanently erases the messages in this specific chat
-     */
-    private void clearCurrentChat() {
-        Conversation activeConv = ConversationManager.getInstance().getActiveConversation();
-
-        // Reset the title so the next user message triggers the title auto-generator
-        activeConv.setTitle("New Conversation");
-        activeConv.updateLastModified();
-
-        // Delete the data from the Active Conversation model 
-        activeConv.getMessages().clear();
-        
-        // Wipe the backend session markers so it truly starts fresh
-        activeConv.getChatHashes().clear();
-        activeConv.getContextIds().clear();
-            
-        // Wipe the screen and coordinator memory
-        clearChatScreenAndMemory();
-        
-        refreshSidebarList();
-        refreshChatArea();
-        
-        addMessage("System", "Current chat history cleared.");
-        inputArea.requestFocusInWindow();
-    }
-
     /**
      * Clears the UI and the Coordinator's memory. 
      * Does NOT delete the saved messages in the ConversationManager.
@@ -1023,6 +1040,12 @@ public class AIAssistantPanel {
         if (!text.isEmpty()) {
             if (!ensureChatServiceInitialized()) {
                 return;
+            }
+
+            // If the user deleted all chats and types in the blank slate, start a new one
+            if (ConversationManager.getInstance().getActiveConversation() == null) {
+                ConversationManager.getInstance().startNewConversation();
+                refreshSidebarList();
             }
 
             // Print user message immediately
