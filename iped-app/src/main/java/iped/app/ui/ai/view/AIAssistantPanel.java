@@ -744,9 +744,8 @@ public class AIAssistantPanel {
         Map<String, String> taskPrompts = new java.util.HashMap<>();
         taskPrompts.put("Summarize", "Resuma o arquivo fornecido.");
         taskPrompts.put("Find Patterns", "Encontre padrões no arquivo fornecido.");
-        taskPrompts.put("Analyze Metadata", "Analise os metadados do arquivo fornecido.");
 
-        String[] tasks = {"Summarize", "Find Patterns", "Analyze Metadata"};
+        String[] tasks = {"Summarize", "Find Patterns"};
         for (String task : tasks) {
             JButton btn = new JButton(task);
             btn.setAlignmentX(Component.CENTER_ALIGNMENT);
