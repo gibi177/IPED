@@ -39,8 +39,8 @@ public class ConversationManager {
      */
     public void setActiveConversation(Conversation conversation) {
         this.activeConversation = conversation;
-        if (!conversations.contains(conversation)) {
-            // Add new conversations to the top of the list
+        // Safeguard: don't add null to the list if the active state is wiped
+        if (conversation != null && !conversations.contains(conversation)) {
             conversations.add(0, conversation);
         }
     }
@@ -56,6 +56,10 @@ public class ConversationManager {
 
     public List<Conversation> getConversations() {
         return Collections.unmodifiableList(conversations);
+    }
+
+    public void removeConversation(Conversation conversation) {
+        conversations.remove(conversation);
     }
 
     /**
