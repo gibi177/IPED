@@ -75,6 +75,7 @@ public class AIAssistantPanel {
     private Timer streamTimer;
     private AIChatMessage streamingMessage;
     private Runnable streamDrainAction;
+    private boolean processing;
 
     // Sidebar components
     private JSplitPane splitPane;
@@ -132,6 +133,47 @@ public class AIAssistantPanel {
                 refreshContextUI();
             }
         });
+    }
+
+    public void startNewConversationWithCurrentContext(List<IItem> pendingItems) {
+        Conversation newConversation = ConversationManager.getInstance().startNewConversation();
+
+        List<Integer> contextIds = new ArrayList<>();
+        for (IItem item : AIContextManager.getInstance().getContextFiles()) {
+            if (item != null && !contextIds.contains(item.getId())) {
+                contextIds.add(item.getId());
+            }
+        }
+
+        if (pendingItems != null) {
+            for (IItem item : pendingItems) {
+                if (item != null && !contextIds.contains(item.getId())) {
+                    contextIds.add(item.getId());
+                }
+            }
+        }
+
+        newConversation.setContextIds(contextIds);
+        newConversation.setChatHashes(new ArrayList<>());
+        newConversation.setMessages(new ArrayList<>());
+        newConversation.updateLastModified();
+
+        if (pendingItems != null) {
+            AIContextManager.getInstance().addContextFiles(pendingItems);
+        }
+
+        if (coordinator != null) {
+            coordinator.clearHistory();
+        }
+
+        refreshSidebarList();
+        refreshChatArea();
+        conversationList.setSelectedValue(newConversation, true);
+        showDialogSafely();
+    }
+
+    public boolean isProcessing() {
+        return processing;
     }
 
     private void createUI() {
@@ -929,6 +971,9 @@ public class AIAssistantPanel {
 
     private void showDialogSafely() {
         ensureVisibleOnScreen();
+        if (frame.getExtendedState() == JFrame.ICONIFIED) {
+            frame.setExtendedState(JFrame.NORMAL);
+        }
         if (!frame.isVisible()) {
             frame.setVisible(true);
         }
@@ -1084,6 +1129,7 @@ public class AIAssistantPanel {
      * Locks or unlocks the input fields and displays the loading bar.
      */
     private void setProcessing(boolean processing) {
+        this.processing = processing;
         progressBar.setVisible(processing);
         sendButton.setEnabled(!processing);
         inputArea.setEnabled(!processing);

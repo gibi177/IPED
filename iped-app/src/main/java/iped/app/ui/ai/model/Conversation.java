@@ -42,6 +42,18 @@ public class Conversation {
     public void setMessages(List<AIChatMessage> messages) { this.messages = messages; }
 
     /**
+     * Returns true when this conversation already has a completed assistant reply.
+     */
+    public boolean hasAssistantReply() {
+        for (AIChatMessage msg : messages) {
+            if ("assistant".equals(msg.getType())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Auto-generates a title based on the first user message if the title is default
      */
     public void autoGenerateTitle() {
