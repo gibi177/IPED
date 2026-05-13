@@ -7,6 +7,7 @@ import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -19,20 +20,23 @@ import javax.swing.text.StyledDocument;
 
 import iped.app.ui.ai.AIChatCoordinator;
 import iped.app.ui.ai.model.AIChatMessage;
+import iped.app.ui.ai.model.ContextFileEntry;
+import iped.app.ui.ai.model.Conversation;
 import iped.app.ui.ai.context.AIContextManager;
 import iped.app.ui.ai.context.ContextChangeEvent;
 import iped.app.ui.ai.context.ContextChangeListener;
-import iped.app.ui.ai.model.ContextFileEntry;
+import iped.app.ui.ai.context.ConversationManager;
 import iped.app.ui.ai.backend.AIBackendClient;
 import iped.app.ui.ai.backend.AIBackendConfig;
+import iped.app.ui.ai.util.ConversationPersistence;
+
 import iped.app.ui.App;
 import iped.app.ui.Messages;
+import iped.app.ui.FileProcessor;
 import iped.data.IItem;
+import iped.data.IItemId;
 import iped.engine.search.IPEDSearcher;
 import iped.engine.search.MultiSearchResult;
-import iped.data.IItemId;
-import iped.app.ui.FileProcessor;
-import iped.properties.ExtraProperties;
 
 /**
  * AI Assistant floating panel UI layer for IPED.
@@ -49,7 +53,7 @@ public class AIAssistantPanel {
     private static final int HORIZONTAL_OFFSET = 30;
     private static final int VERTICAL_OFFSET = 120;
     private static final double HEIGHT_PERCENTAGE = 0.8;
-    private static final int PANEL_WIDTH = 550;
+    private static final int PANEL_WIDTH = 750;
     private static final int STREAM_APPEND_DELAY_MS = 30;
     private static final int AUTO_SCROLL_BOTTOM_THRESHOLD_PX = 24;
     private static final int CONTEXT_VISIBLE_ITEMS = 5;
@@ -65,13 +69,21 @@ public class AIAssistantPanel {
     private JButton sendButton;
     private JLabel statusLabel;
     private JProgressBar progressBar;
+
     private AIMarkdownRenderer markdownRenderer;
-    private final List<AIChatMessage> finalizedMessages = new ArrayList<>();
     private AIChatMessage draftMessage;
     private final List<String> streamQueue = new ArrayList<>();
     private Timer streamTimer;
     private AIChatMessage streamingMessage;
     private Runnable streamDrainAction;
+    private boolean processing;
+
+    // Sidebar components
+    private JSplitPane splitPane;
+    private JPanel sidebarPanel;
+    private JButton newChatButton;
+    private JList<Conversation> conversationList;
+    private DefaultListModel<Conversation> conversationListModel;
 
     // Service layer that handles business logic and threading
     private AIChatCoordinator coordinator;
@@ -124,6 +136,47 @@ public class AIAssistantPanel {
         });
     }
 
+    public void startNewConversationWithCurrentContext(List<IItem> pendingItems) {
+        Conversation newConversation = ConversationManager.getInstance().startNewConversation();
+
+        List<Integer> contextIds = new ArrayList<>();
+        for (IItem item : AIContextManager.getInstance().getContextFiles()) {
+            if (item != null && !contextIds.contains(item.getId())) {
+                contextIds.add(item.getId());
+            }
+        }
+
+        if (pendingItems != null) {
+            for (IItem item : pendingItems) {
+                if (item != null && !contextIds.contains(item.getId())) {
+                    contextIds.add(item.getId());
+                }
+            }
+        }
+
+        newConversation.setContextIds(contextIds);
+        newConversation.setChatHashes(new ArrayList<>());
+        newConversation.setMessages(new ArrayList<>());
+        newConversation.updateLastModified();
+
+        if (pendingItems != null) {
+            AIContextManager.getInstance().addContextFiles(pendingItems);
+        }
+
+        if (coordinator != null) {
+            coordinator.clearHistory();
+        }
+
+        refreshSidebarList();
+        refreshChatArea();
+        conversationList.setSelectedValue(newConversation, true);
+        showDialogSafely();
+    }
+
+    public boolean isProcessing() {
+        return processing;
+    }
+
     private void createUI() {
         String title = "AI Assistant";
         try { title = Messages.getString("AIAssistant.Title"); } catch (Exception e) {}
@@ -135,8 +188,12 @@ public class AIAssistantPanel {
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
+        // Header
         mainPanel.add(createHeaderPanel(), BorderLayout.NORTH);
 
+        // Chat Workspace
+        JPanel chatWorkspacePanel = new JPanel(new BorderLayout(5, 5));
+        
         JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
         centerPanel.add(createContextSection(), BorderLayout.NORTH);
 
@@ -165,14 +222,28 @@ public class AIAssistantPanel {
         JPanel tasksPanel = createTasksPanel();
         centerPanel.add(tasksPanel, BorderLayout.EAST);
 
-        mainPanel.add(centerPanel, BorderLayout.CENTER);
-        mainPanel.add(createBottomPanel(), BorderLayout.SOUTH);
+        chatWorkspacePanel.add(centerPanel, BorderLayout.CENTER);
+        chatWorkspacePanel.add(createBottomPanel(), BorderLayout.SOUTH);
+
+        // Conversations Sidebar
+        sidebarPanel = createSidebarPanel();
+
+        // The SplitPane connecting them
+        splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sidebarPanel, chatWorkspacePanel);
+        splitPane.setContinuousLayout(true);
+        splitPane.setDividerSize(5);
+        splitPane.setBorder(null); // Keep it clean
+        splitPane.setDividerLocation(220); // Default sidebar width
+
+        mainPanel.add(splitPane, BorderLayout.CENTER);
 
         frame.getContentPane().add(mainPanel);
         frame.pack();
         positionDialog();
 
         addMessage("System", "AI Assistant ready. Connected to local Backend server.\nRight-click an HTML WhatsApp chat export to add it to the context, then type your question.");
+        
+        refreshSidebarList();
     }
 
     private void installTokenClickHandler() {
@@ -191,18 +262,21 @@ public class AIAssistantPanel {
                 javax.swing.text.Element element = chatDocument.getCharacterElement(offset);
                 javax.swing.text.AttributeSet attributes = element.getAttributes();
                 Object tokenFlag = attributes.getAttribute(AIMarkdownRenderer.TOKEN_ATTRIBUTE);
-                if (!Boolean.TRUE.equals(tokenFlag)) {
+                if (Boolean.TRUE.equals(tokenFlag)) {
+                    int start = element.getStartOffset();
+                    int end = element.getEndOffset();
+                    chatArea.setSelectionStart(start);
+                    chatArea.setSelectionEnd(Math.max(start, end));
+
+                    Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
+                    Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
+                    navigateToItem(String.valueOf(hash), String.valueOf(chunkId));
                     return;
                 }
 
-                int start = element.getStartOffset();
-                int end = element.getEndOffset();
-                chatArea.setSelectionStart(start);
-                chatArea.setSelectionEnd(Math.max(start, end));
-
-                Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
-                Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
-                navigateToItem(String.valueOf(hash), String.valueOf(chunkId));
+                if (markdownRenderer != null && markdownRenderer.toggleThinkingAtOffset(offset)) {
+                    refreshChatArea();
+                }
             }
         });
     }
@@ -277,23 +351,268 @@ public class AIAssistantPanel {
     private JPanel createHeaderPanel() {
         JPanel headerPanel = new JPanel(new BorderLayout());
 
+        // Toggle Sidebar Button
+        JButton toggleSidebarBtn = new JButton("☰");
+        toggleSidebarBtn.setMargin(new Insets(2, 6, 2, 6));
+        toggleSidebarBtn.setFocusPainted(false);
+        toggleSidebarBtn.setToolTipText("Toggle Sidebar");
+        toggleSidebarBtn.addActionListener(e -> toggleSidebar());
+
         String titleText = "AI Assistant";
         try { titleText = Messages.getString("AIAssistant.Title"); } catch (Exception e) {}
         JLabel titleLabel = new JLabel(titleText);
         titleLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
 
-        // Update status label to indicate live connection
         statusLabel = new JLabel("● Connected to local backend server");
         statusLabel.setForeground(new Color(0, 150, 0)); // Green for active
 
-        JPanel leftPanel = new JPanel(new BorderLayout());
-        leftPanel.add(titleLabel, BorderLayout.NORTH);
+        // Group toggle button and title
+        JPanel titleArea = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
+        titleArea.add(toggleSidebarBtn);
+        titleArea.add(titleLabel);
+
+        JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
+        leftPanel.add(titleArea, BorderLayout.NORTH);
         leftPanel.add(statusLabel, BorderLayout.SOUTH);
 
         headerPanel.add(leftPanel, BorderLayout.WEST);
         headerPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.LIGHT_GRAY));
 
         return headerPanel;
+    }
+
+    private JPanel createSidebarPanel() {
+        JPanel panel = new JPanel(new BorderLayout(0, 5));
+        panel.setMinimumSize(new Dimension(150, 0)); 
+        panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5)); 
+
+        newChatButton = new JButton("+ New Chat");
+        newChatButton.setFont(newChatButton.getFont().deriveFont(Font.BOLD));
+        newChatButton.addActionListener(e -> startNewChat());
+        
+        panel.add(newChatButton, BorderLayout.NORTH);
+
+        // Conversation List UI
+        conversationListModel = new DefaultListModel<>();
+        conversationList = new JList<>(conversationListModel);
+        conversationList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
+        
+        // Custom Renderer to make the items look like modern chat tabs
+        conversationList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
+            JPanel rowPanel = new JPanel(new BorderLayout(8, 0));
+            rowPanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10)); // Padded
+            rowPanel.setOpaque(true);
+            rowPanel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
+
+            if (value instanceof Conversation) {
+                Conversation conv = (Conversation) value;
+                
+                JLabel textLabel = new JLabel(conv.getTitle());
+                textLabel.setFont(list.getFont());
+                textLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
+                
+                JLabel removeLabel = new JLabel("X");
+                removeLabel.setFont(list.getFont().deriveFont(Font.BOLD));
+                // Only show red 'X' if selected, otherwise subtle gray, to keep UI clean
+                removeLabel.setForeground(isSelected ? new Color(160, 0, 0) : Color.LIGHT_GRAY);
+                
+                rowPanel.add(textLabel, BorderLayout.CENTER);
+                rowPanel.add(removeLabel, BorderLayout.EAST);
+            }
+            return rowPanel;
+        });
+
+        // Wire up the click listener for the sidebar tabs
+        conversationList.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) return;
+                
+                int index = conversationList.locationToIndex(e.getPoint());
+                if (index < 0) return;
+                
+                Rectangle cellBounds = conversationList.getCellBounds(index, index);
+                if (cellBounds == null || !cellBounds.contains(e.getPoint())) return;
+
+                Conversation selected = conversationListModel.getElementAt(index);
+                
+                // Check if clicked the 'X' hotzone
+                if (e.getX() >= cellBounds.x + cellBounds.width - 28) {
+                    promptDeleteConversation(selected);
+                    return;
+                }
+                
+                // Otherwise, load the conversation
+                Conversation active = ConversationManager.getInstance().getActiveConversation();
+
+                // Only load if they clicked a different conversation
+                if (selected != null && (active == null || !active.getId().equals(selected.getId()))) {
+                    loadConversation(selected);
+                }
+            }
+        });
+
+        // Hide the scrollpane borders to blend seamlessly into the sidebar
+        JScrollPane scrollPane = new JScrollPane(conversationList);
+        scrollPane.setBorder(BorderFactory.createEmptyBorder()); 
+        
+        panel.add(scrollPane, BorderLayout.CENTER);
+
+        return panel;
+    }
+
+    /**
+     * Confirmation to delete chat when clicking the 'X' on the Conversation list entry
+     */
+    private void promptDeleteConversation(Conversation conv) {
+        int confirm = JOptionPane.showConfirmDialog(frame,
+            "Are you sure you want to delete this chat?\n\"" + conv.getTitle() + "\"",
+            "Delete Chat",
+            JOptionPane.YES_NO_OPTION,
+            JOptionPane.WARNING_MESSAGE);
+            
+        if (confirm == JOptionPane.YES_OPTION) {
+            // Delete the actual JSON file from the hard drive
+            ConversationPersistence.deleteConversation(conv.getId());
+            
+            // Remove from memory
+            ConversationManager.getInstance().removeConversation(conv);
+            
+            // Check if the chat currently being looked at was deleted
+            Conversation active = ConversationManager.getInstance().getActiveConversation();
+            if (active == null || active.getId().equals(conv.getId())) {
+                List<Conversation> remaining = ConversationManager.getInstance().getConversations();
+                
+                if (!remaining.isEmpty()) {
+                    // Option A: Load the conversation at the top of the list
+                    loadConversation(remaining.get(0));
+                    refreshSidebarList();
+                } else {
+                    // Option B: The list is completely empty
+                    ConversationManager.getInstance().setActiveConversation(null);
+                    clearChatScreenAndMemory();
+                    AIContextManager.getInstance().clearContext();
+                    refreshSidebarList();
+                }
+            } else {
+                refreshSidebarList(); // Just removes it visually from the sidebar
+            }
+        }
+    }
+
+    private void toggleSidebar() {
+        if (sidebarPanel.isVisible()) {
+            sidebarPanel.setVisible(false);
+            splitPane.setDividerLocation(0);
+            splitPane.setDividerSize(0);
+        } else {
+            sidebarPanel.setVisible(true);
+            splitPane.setDividerSize(5);
+            splitPane.setDividerLocation(220);
+        }
+    }
+
+    private void refreshSidebarList() {
+        conversationListModel.clear();
+        for (Conversation conv : ConversationManager.getInstance().getConversations()) {
+            conversationListModel.addElement(conv);
+        }
+        conversationList.repaint();
+    }
+
+    private void startNewChat() {
+        // Create a new active conversation in memory first (safeguards the old one)
+        ConversationManager.getInstance().startNewConversation();
+        
+        // Clear UI and Coordinator memory
+        clearChatScreenAndMemory();
+        
+        // Clear IPED context
+        AIContextManager.getInstance().clearContext();
+        
+        refreshSidebarList();
+        refreshChatArea();
+        
+        addMessage("System", "Started a new conversation session.");
+        inputArea.requestFocusInWindow();
+    }
+
+    /**
+     * Loads a selected conversation from the sidebar into the main chat window.
+     */
+    private void loadConversation(Conversation conv) {
+        // Update State Manager
+        ConversationManager.getInstance().setActiveConversation(conv);
+        
+        // Hydrate the Coordinator's Network Memory
+        if (coordinator != null) {
+            coordinator.loadHistoricalContext(conv.getChatHashes(), conv.getContextIds(), conv.getMessages());
+        }
+        
+        // Restore the visual IPED Context UI 
+        AIContextManager.getInstance().clearContext(); // Wipe previous chat's files
+        
+        new Thread(() -> {
+            List<IItem> restoredItems = new ArrayList<>();
+
+            // Use the MD5 Chat Hashes to find the file
+            if (conv.getChatHashes() != null) {
+                for (String hash : conv.getChatHashes()) {
+                    try {
+                        IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "hash:" + hash);
+                        MultiSearchResult result = searcher.multiSearch();
+                        
+                        if (result != null && result.getLength() > 0) {
+                            // Extract the fully qualified IItemId (which contains the source routing)
+                            IItemId qualifiedItemId = result.getItem(0);
+
+                            // Now the MultiSource can safely fetch the item
+                            IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
+                            if (item != null) {
+                                restoredItems.add(item);
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Could not restore context item hash: " + hash);
+                    }
+                }
+            }
+
+            // Push the items back into the visual sidebar safely on the UI thread
+            if (!restoredItems.isEmpty()) {
+                SwingUtilities.invokeLater(() -> {
+                    // Check race condition: Did the user click a different chat while the search is ongoing?
+                    Conversation currentActive = ConversationManager.getInstance().getActiveConversation();
+                    if (currentActive == null || !currentActive.getId().equals(conv.getId())) {
+                        return; // Abort
+                    }
+
+                    // Update the Coordinator's memory with the freshly fetched IDs just in case
+                    // the database was rebuilt and the integer IDs changed
+                    List<Integer> freshIds = restoredItems.stream()
+                            .map(IItem::getId)
+                            .collect(java.util.stream.Collectors.toList());
+                    
+                    if (coordinator != null) {
+                        // Re-sync the coordinator to prevent a false "contextChanged" flag
+                        coordinator.loadHistoricalContext(conv.getChatHashes(), freshIds, conv.getMessages());
+                    }
+                    
+                    // Restore the visual UI
+                    AIContextManager.getInstance().addContextFiles(restoredItems);
+                });
+            }
+        }).start();
+        
+        // Reset UI streaming states
+        draftMessage = null;
+        if (markdownRenderer != null) {
+            markdownRenderer.commitDraft(); 
+        }
+        
+        // Redraw the screen
+        refreshChatArea();
+        conversationList.setSelectedValue(conv, true);
     }
 
     private JPanel createContextSection() {
@@ -467,54 +786,49 @@ public class AIAssistantPanel {
         panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
         panel.setBorder(BorderFactory.createTitledBorder("Quick Actions"));
 
-        String[] tasks = {"Summarize", "Find Patterns", "Analyze Metadata"};
+        // Map English button text to Portuguese prompts
+        Map<String, String> taskPrompts = new java.util.HashMap<>();
+        taskPrompts.put("Summarize", "Resuma o arquivo fornecido.");
+        taskPrompts.put("Find Patterns", "Encontre padrões no arquivo fornecido.");
+
+        String[] tasks = {"Summarize", "Find Patterns"};
         for (String task : tasks) {
             JButton btn = new JButton(task);
             btn.setAlignmentX(Component.CENTER_ALIGNMENT);
             btn.setMaximumSize(new Dimension(200, 30));
             // Firing a pre-written prompt directly into the input area logic
             btn.addActionListener(e -> {
-                inputArea.setText(task + " the provided file.");
+                inputArea.setText(taskPrompts.get(task));
                 handleSendAction();
             });
             panel.add(btn);
             panel.add(Box.createVerticalStrut(5));
         }
         
-        // Add separator
-        panel.add(Box.createVerticalStrut(10));
-        JSeparator separator = new JSeparator();
-        separator.setMaximumSize(new Dimension(200, 1));
-        panel.add(separator);
-        panel.add(Box.createVerticalStrut(5));
-        
-        // Clear Chat History button
-        JButton clearChatButton = new JButton("Clear Chat History");
-        clearChatButton.setAlignmentX(Component.CENTER_ALIGNMENT);
-        clearChatButton.setMaximumSize(new Dimension(200, 30));
-        clearChatButton.addActionListener(e -> clearChatHistory());
-        panel.add(clearChatButton);
-        
         return panel;
     }
     
-    // Action Button to clear the chat history, resetting the conversation and UI to a clean state
-    private void clearChatHistory() {
-        finalizedMessages.clear();
+    /**
+     * Clears the UI and the Coordinator's memory. 
+     * Does NOT delete the saved messages in the ConversationManager.
+     */
+    private void clearChatScreenAndMemory() {
         draftMessage = null;
         
-        // Wipe the Coordinator's memory
+        // Wipe the Coordinator's memory so the LLM forgets the previous context
         if (coordinator != null) {
             coordinator.clearHistory();
         }
         
+        // Wipe the UI screen
         try {
+            if (markdownRenderer != null) {
+                markdownRenderer.commitDraft(); // Resets anchor to -1
+            }
             chatDocument.remove(0, chatDocument.getLength());
         } catch (BadLocationException e) {
             System.err.println("Error clearing chat document: " + e.getMessage());
         }
-        
-        refreshChatArea();
     }
 
     private JPanel createBottomPanel() {
@@ -625,7 +939,9 @@ public class AIAssistantPanel {
 
     private void addMessage(String sender, String message, String type) {
         AIChatMessage chatMessage = AIChatMessage.now(sender, message, type);
-        finalizedMessages.add(chatMessage);
+        
+        // Let the Manager hold the data
+        ConversationManager.getInstance().addMessageToActive(chatMessage);
 
         if (markdownRenderer != null) {
             appendFinalizedMessage(chatMessage);
@@ -634,16 +950,24 @@ public class AIAssistantPanel {
         }
     }
 
+    private void addMessage(String sender, String message) {
+        addMessage(sender, message, "system");
+    }
+
+    // Renderable messages are the messages in the current active conversation
     private List<AIChatMessage> buildRenderableMessages() {
-        List<AIChatMessage> renderableMessages = new ArrayList<>(finalizedMessages);
+        List<AIChatMessage> renderableMessages = new ArrayList<>();
+    
+        // Safely check if there is an active conversation
+        Conversation activeConv = ConversationManager.getInstance().getActiveConversation();
+        if (activeConv != null) {
+            renderableMessages.addAll(activeConv.getMessages());
+        }
+
         if (draftMessage != null) {
             renderableMessages.add(draftMessage);
         }
         return renderableMessages;
-    }
-
-    private void addMessage(String sender, String message) {
-        addMessage(sender, message, "system");
     }
 
     private void positionDialog() {
@@ -693,6 +1017,9 @@ public class AIAssistantPanel {
 
     private void showDialogSafely() {
         ensureVisibleOnScreen();
+        if (frame.getExtendedState() == JFrame.ICONIFIED) {
+            frame.setExtendedState(JFrame.NORMAL);
+        }
         if (!frame.isVisible()) {
             frame.setVisible(true);
         }
@@ -789,9 +1116,20 @@ public class AIAssistantPanel {
                 return;
             }
 
+            // If the user deleted all chats and types in the blank slate, start a new one
+            if (ConversationManager.getInstance().getActiveConversation() == null) {
+                ConversationManager.getInstance().startNewConversation();
+                refreshSidebarList();
+            }
+
             // Print user message immediately
             addMessage("You", text, "user");
             inputArea.setText("");
+
+            // Push message to the manager
+            ConversationManager.getInstance().addMessageToActive(
+                AIChatMessage.now("You", text, "user")
+            );
             
             // Lock the UI
             setProcessing(true);
@@ -812,16 +1150,15 @@ public class AIAssistantPanel {
                 () -> javax.swing.SwingUtilities.invokeLater(() -> {
                     completeStreaming(() -> {
                         if (assistantDraft.getContent().isEmpty()) {
-                            if (markdownRenderer != null) {
-                                markdownRenderer.discardDraft();
-                            }
+                            if (markdownRenderer != null) markdownRenderer.discardDraft();
                             draftMessage = null;
                         } else {
-                            finalizedMessages.add(assistantDraft);
-                            if (markdownRenderer != null) {
-                                markdownRenderer.commitDraft();
-                            }
+                            if (markdownRenderer != null) markdownRenderer.commitDraft();
                             draftMessage = null;
+                            
+                            // Save the LLM's answer to active conversation state
+                            ConversationManager.getInstance().addMessageToActive(assistantDraft);
+                            refreshSidebarList();
                         }
                         setProcessing(false);
                     });
@@ -844,6 +1181,7 @@ public class AIAssistantPanel {
      * Locks or unlocks the input fields and displays the loading bar.
      */
     private void setProcessing(boolean processing) {
+        this.processing = processing;
         progressBar.setVisible(processing);
         sendButton.setEnabled(!processing);
         inputArea.setEnabled(!processing);

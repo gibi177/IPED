@@ -31,9 +31,12 @@ import javax.swing.JPopupMenu;
 import javax.swing.JRadioButtonMenuItem;
 import javax.swing.JTable;
 import javax.swing.KeyStroke;
+import javax.swing.JOptionPane;
 import javax.swing.SwingUtilities;
 
 import iped.app.ui.ai.context.AIContextManager;
+import iped.app.ui.ai.context.ConversationManager;
+import iped.app.ui.ai.model.Conversation;
 import iped.app.ui.ai.view.AIAssistantPanel;
 import iped.app.ui.themes.Theme;
 import iped.app.ui.themes.ThemeManager;
@@ -343,19 +346,15 @@ public class MenuClass extends JPopupMenu {
         } catch (Exception ignored) {}
         
         addAllHighlightedToAIContext.addActionListener(e -> {
-            new Thread(() -> {
-                List<IItem> itemsToAdd = getHighlightedItems();
-                
-                // Fallback: If no table rows are highlighted, or user clicked from the tree, use the single right-clicked item
-                if (itemsToAdd.isEmpty() && item != null) {
-                    itemsToAdd.add(item);
-                }
-                
-                if (!itemsToAdd.isEmpty()) {
-                    AIContextManager.getInstance().addContextFiles(itemsToAdd);
-                    SwingUtilities.invokeLater(() -> AIAssistantPanel.getInstance().showPanel());
-                }
-            }).start();
+            List<IItem> itemsToAdd = getHighlightedItems();
+
+            if (itemsToAdd.isEmpty() && item != null) {
+                itemsToAdd.add(item);
+            }
+
+            if (!itemsToAdd.isEmpty()) {
+                openAIAssistantWithItems(itemsToAdd);
+            }
         });
         this.add(addAllHighlightedToAIContext);
 
@@ -366,13 +365,11 @@ public class MenuClass extends JPopupMenu {
         } catch (Exception ignored) {}
 
         addAllCheckedToAIContext.addActionListener(e -> {
-            new Thread(() -> {
-                List<IItem> itemsToAdd = getCheckedItems();
-                if (!itemsToAdd.isEmpty()) {
-                    AIContextManager.getInstance().addContextFiles(itemsToAdd);
-                    SwingUtilities.invokeLater(() -> AIAssistantPanel.getInstance().showPanel());
-                }
-            }).start();
+            List<IItem> itemsToAdd = getCheckedItems();
+            
+            if (!itemsToAdd.isEmpty()) {
+                openAIAssistantWithItems(itemsToAdd);
+            }
         });
         this.add(addAllCheckedToAIContext);
 
@@ -429,6 +426,40 @@ public class MenuClass extends JPopupMenu {
     
         // Fetch the actual IItem using IPED's appCase directly
         return App.get().appCase.getItemByItemId(itemId); 
+    }
+
+    private void openAIAssistantWithItems(List<IItem> itemsToAdd) {
+        Conversation activeConversation = ConversationManager.getInstance().getActiveConversation();
+        AIAssistantPanel assistantPanel = AIAssistantPanel.getInstance();
+
+        if (assistantPanel.isProcessing()) {
+            JOptionPane.showMessageDialog(
+                    null,
+                    "Aguarde a resposta atual terminar antes de adicionar novos itens ao contexto.",
+                    "AI Assistant",
+                    JOptionPane.INFORMATION_MESSAGE);
+            return;
+        }
+        
+        if (activeConversation == null) {
+            assistantPanel.startNewConversationWithCurrentContext(itemsToAdd);
+        } else if (!activeConversation.hasAssistantReply()) {
+            AIContextManager.getInstance().addContextFiles(itemsToAdd);
+            assistantPanel.showPanel();
+        } else {
+            int result = JOptionPane.showConfirmDialog(
+                    null,
+                    "This context has already been used in an active chat.\n Would you like to start a new conversation with both the previously uploaded files and the newly added ones?",
+                    "New Chat",
+                    JOptionPane.YES_NO_OPTION,
+                    JOptionPane.QUESTION_MESSAGE);
+
+            if (result == JOptionPane.YES_OPTION) {
+                assistantPanel.startNewConversationWithCurrentContext(itemsToAdd);
+            } else if (result == JOptionPane.NO_OPTION) {
+                assistantPanel.showPanel();
+            }
+        }
     }
 
     public void addExportTreeMenuItems(JComponent menu) {
