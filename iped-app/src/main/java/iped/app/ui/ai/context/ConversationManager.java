@@ -2,6 +2,7 @@ package iped.app.ui.ai.context;
 
 import iped.app.ui.ai.model.AIChatMessage;
 import iped.app.ui.ai.model.Conversation;
+import iped.app.ui.ai.util.ConversationPersistence;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -20,7 +21,19 @@ public class ConversationManager {
 
     private ConversationManager() {
         this.conversations = new ArrayList<>();
-        startNewConversation();
+        
+        // Load from disk
+        List<Conversation> loadedChats = ConversationPersistence.loadAllConversations();
+        
+        if (loadedChats != null && !loadedChats.isEmpty()) {
+            this.conversations.addAll(loadedChats);
+            // Intentionally leave activeConversation as null so the screen 
+            // starts blank, forcing the user to select one or click "+ New Chat"
+            this.activeConversation = null; 
+        } else {
+            // If the folder is empty, start a fresh chat
+            startNewConversation();
+        }
     }
 
     public static synchronized ConversationManager getInstance() {
@@ -70,10 +83,14 @@ public class ConversationManager {
             activeConversation.getMessages().add(message);
             activeConversation.updateLastModified();
             
-            // If this is the first user message, generate the title!
+            // If this is the first user message, generate the title
             if ("New Conversation".equals(activeConversation.getTitle()) && "user".equals(message.getType())) {
                 activeConversation.autoGenerateTitle();
             }
+            
+            // Save to disk asynchronously
+            final Conversation convToSave = activeConversation;
+            new Thread(() -> ConversationPersistence.saveConversation(convToSave)).start();
         }
     }
 }

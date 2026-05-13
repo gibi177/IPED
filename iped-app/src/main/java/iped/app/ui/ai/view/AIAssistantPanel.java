@@ -28,6 +28,7 @@ import iped.app.ui.ai.context.ContextChangeListener;
 import iped.app.ui.ai.context.ConversationManager;
 import iped.app.ui.ai.backend.AIBackendClient;
 import iped.app.ui.ai.backend.AIBackendConfig;
+import iped.app.ui.ai.util.ConversationPersistence;
 
 import iped.app.ui.App;
 import iped.app.ui.Messages;
@@ -241,6 +242,8 @@ public class AIAssistantPanel {
         positionDialog();
 
         addMessage("System", "AI Assistant ready. Connected to local Backend server.\nRight-click an HTML WhatsApp chat export to add it to the context, then type your question.");
+        
+        refreshSidebarList();
     }
 
     private void installTokenClickHandler() {
@@ -469,6 +472,9 @@ public class AIAssistantPanel {
             JOptionPane.WARNING_MESSAGE);
             
         if (confirm == JOptionPane.YES_OPTION) {
+            // Delete the actual JSON file from the hard drive
+            ConversationPersistence.deleteConversation(conv.getId());
+            
             // Remove from memory
             ConversationManager.getInstance().removeConversation(conv);
             
@@ -491,8 +497,6 @@ public class AIAssistantPanel {
             } else {
                 refreshSidebarList(); // Just removes it visually from the sidebar
             }
-            
-            // TODO: add the code here to delete the actual JSON file from the disk, when that is available
         }
     }
 
@@ -950,11 +954,16 @@ public class AIAssistantPanel {
         addMessage(sender, message, "system");
     }
 
+    // Renderable messages are the messages in the current active conversation
     private List<AIChatMessage> buildRenderableMessages() {
-        // Renderable messages are the messages in the current active conversation
-        List<AIChatMessage> renderableMessages = new ArrayList<>(
-            ConversationManager.getInstance().getActiveConversation().getMessages()
-        );
+        List<AIChatMessage> renderableMessages = new ArrayList<>();
+    
+        // Safely check if there is an active conversation
+        Conversation activeConv = ConversationManager.getInstance().getActiveConversation();
+        if (activeConv != null) {
+            renderableMessages.addAll(activeConv.getMessages());
+        }
+
         if (draftMessage != null) {
             renderableMessages.add(draftMessage);
         }

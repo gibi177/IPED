@@ -32,13 +32,22 @@ public class Conversation {
     public long getLastModified() { return lastModified; }
     public void updateLastModified() { this.lastModified = System.currentTimeMillis(); }
 
-    public List<Integer> getContextIds() { return contextIds; }
+    public List<Integer> getContextIds() { 
+        if (contextIds == null) contextIds = new ArrayList<>();
+        return contextIds; 
+    }
     public void setContextIds(List<Integer> contextIds) { this.contextIds = contextIds; }
 
-    public List<String> getChatHashes() { return chatHashes; }
+    public List<String> getChatHashes() { 
+        if (chatHashes == null) chatHashes = new ArrayList<>();
+        return chatHashes; 
+    }
     public void setChatHashes(List<String> chatHashes) { this.chatHashes = chatHashes; }
 
-    public List<AIChatMessage> getMessages() { return messages; }
+    public List<AIChatMessage> getMessages() { 
+        if (messages == null) messages = new ArrayList<>();
+        return messages; 
+    }
     public void setMessages(List<AIChatMessage> messages) { this.messages = messages; }
 
     /**

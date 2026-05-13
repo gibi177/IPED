@@ -33,33 +33,39 @@ public class ConversationPersistence {
      * Safely handles IPEDMultiSource (Multi-case mode) by falling back to the first available case
      */
     private static File getStorageDirectory() {
-        if (App.get() == null || App.get().appCase == null) {
-            return null; // Failsafe if accessed outside of an open case
-        }
-        
-        File caseDir = App.get().appCase.getCaseDir();
-        
-        // Handle the Multi-Case edge case where the global case directory might be null
-        if (caseDir == null && App.get().appCase instanceof IPEDMultiSource) {
-            IPEDMultiSource multiSource = (IPEDMultiSource) App.get().appCase;
-            if (!multiSource.getAtomicSources().isEmpty()) {
-                // Fallback: Save the multi-case chats into the first case's directory
-                caseDir = multiSource.getAtomicSources().get(0).getCaseDir();
-            }
-        }
-        
-        // Absolute failsafe if the directory is still somehow unresolvable
-        if (caseDir == null) {
-            caseDir = new File(System.getProperty("user.home"), ".iped_ai_chats");
-        }
+        try {
 
-        File chatsDir = new File(caseDir, CHATS_DIR_NAME);
-        
-        if (!chatsDir.exists()) {
-            chatsDir.mkdirs();
+            if (App.get() == null || App.get().appCase == null) {
+                return null; // Failsafe if accessed outside of an open case
+            }
+            
+            File caseDir = App.get().appCase.getCaseDir();
+            
+            // Handle the Multi-Case edge case where the global case directory might be null
+            if (caseDir == null && App.get().appCase instanceof IPEDMultiSource) {
+                IPEDMultiSource multiSource = (IPEDMultiSource) App.get().appCase;
+                if (!multiSource.getAtomicSources().isEmpty()) {
+                    // Fallback: Save the multi-case chats into the first case's directory
+                    caseDir = multiSource.getAtomicSources().get(0).getCaseDir();
+                }
+            }
+            
+            // Absolute failsafe if the directory is still somehow unresolvable
+            if (caseDir == null) {
+                caseDir = new File(System.getProperty("user.home"), ".iped_ai_chats");
+            }
+
+            File chatsDir = new File(caseDir, CHATS_DIR_NAME);
+            
+            if (!chatsDir.exists()) {
+                chatsDir.mkdirs();
+            }
+            
+            return chatsDir;
+        } catch (Exception e) {
+            System.err.println("Safe fallback: Could not resolve AI storage dir - " + e.getMessage());
+            return null;
         }
-        
-        return chatsDir;
     }
 
     /**

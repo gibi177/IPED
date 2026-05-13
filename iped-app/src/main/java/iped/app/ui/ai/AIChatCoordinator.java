@@ -5,6 +5,7 @@ import iped.app.ui.ai.backend.AIInitMultiChatRequest;
 import iped.app.ui.ai.backend.AIStreamChatRequest;
 import iped.app.ui.ai.util.AIWhatsappChatExtractor;
 import iped.app.ui.ai.util.AIPayloadFactory;
+import iped.app.ui.ai.util.ConversationPersistence;
 import iped.app.ui.ai.model.ContextFileEntry;
 import iped.app.ui.ai.model.AIChatMessage;
 import iped.app.ui.ai.model.Conversation;
@@ -109,6 +110,9 @@ public class AIChatCoordinator {
                         activeConv.setContextIds(new ArrayList<>(currentContextItemIds));
                         activeConv.setChatHashes(new ArrayList<>(currentChatHashes));
                         activeConv.updateLastModified();
+
+                        // Save the hydrated object to disk
+                        ConversationPersistence.saveConversation(activeConv);
                     }
                 }
 
