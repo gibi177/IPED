@@ -1,5 +1,6 @@
 package iped.app.ui.ai.model;
 
+import iped.app.ui.ai.util.SummaryValueExtractor;
 import iped.data.IItem;
 
 /**
@@ -30,7 +31,7 @@ public class ContextFileEntry {
      * @param item the item to wrap
      */
     public ContextFileEntry(IItem item) {
-        this(item, extractSummary(item), true, null);
+        this(item, SummaryValueExtractor.extractSummary(item), true, null);
     }
     
     /**
@@ -58,76 +59,7 @@ public class ContextFileEntry {
      * @return invalid context entry
      */
     public static ContextFileEntry invalid(IItem item, String reason) {
-        return new ContextFileEntry(item, extractSummary(item), false, reason);
-    }
-    
-    /**
-     * Extracts the AI summary from the item's metadata.
-     */
-    private static String extractSummary(IItem item) {
-        if (item == null) {
-            return null;
-        }
-
-        Object extraValue = item.getExtraAttribute(iped.properties.ExtraProperties.SUMMARY);
-        if (extraValue instanceof String) {
-            String summary = ((String) extraValue).trim();
-            if (!summary.isEmpty()) {
-                return summary;
-            }
-        } else if (extraValue instanceof java.util.Collection<?>) {
-            StringBuilder sb = new StringBuilder();
-            for (Object value : (java.util.Collection<?>) extraValue) {
-                if (value != null) {
-                    String text = value.toString().trim();
-                    if (!text.isEmpty()) {
-                        if (sb.length() > 0) {
-                            sb.append("\n");
-                        }
-                        sb.append(text);
-                    }
-                }
-            }
-            if (sb.length() > 0) {
-                return sb.toString();
-            }
-        } else if (extraValue instanceof Object[]) {
-            StringBuilder sb = new StringBuilder();
-            for (Object value : (Object[]) extraValue) {
-                if (value != null) {
-                    String text = value.toString().trim();
-                    if (!text.isEmpty()) {
-                        if (sb.length() > 0) {
-                            sb.append("\n");
-                        }
-                        sb.append(text);
-                    }
-                }
-            }
-            if (sb.length() > 0) {
-                return sb.toString();
-            }
-        } else if (extraValue instanceof String[]) {
-            String[] summaries = (String[]) extraValue;
-            if (summaries.length > 0) {
-                String joined = String.join("\n", summaries).trim();
-                if (!joined.isEmpty()) {
-                    return joined;
-                }
-            }
-        }
-
-        if (item.getMetadata() == null) {
-            return null;
-        }
-        
-        String[] summaries = item.getMetadata().getValues(iped.properties.ExtraProperties.SUMMARY);
-        if (summaries != null && summaries.length > 0) {
-            // Join multiple summary parts if any
-            String joined = String.join("\n", summaries).trim();
-            return joined.isEmpty() ? null : joined;
-        }
-        return null;
+        return new ContextFileEntry(item, SummaryValueExtractor.extractSummary(item), false, reason);
     }
     
     /**
