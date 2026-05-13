@@ -7,6 +7,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.event.EventListenerList;
 
 import iped.app.ui.ai.model.ContextFileEntry;
+import iped.app.ui.ai.util.SummaryValueExtractor;
 import iped.data.IItem;
 import iped.engine.lucene.analysis.CategoryTokenizer;
 import iped.parsers.standard.StandardParser;
@@ -229,7 +230,7 @@ public class AIContextManager {
             return "Rejected: Category is Empty Files.";
         }
 
-        if (hasSummary(item)) {
+        if (SummaryValueExtractor.hasSummary(item)) {
             return null;
         }
 
@@ -311,53 +312,6 @@ public class AIContextManager {
             }
         }
         return null;
-    }
-
-    private boolean hasSummary(IItem item) {
-        if (item == null) {
-            return false;
-        }
-
-        Object extraValue = item.getExtraAttribute(ExtraProperties.SUMMARY);
-        if (extraValue instanceof String) {
-            if (!((String) extraValue).trim().isEmpty()) {
-                return true;
-            }
-        } else if (extraValue instanceof java.util.Collection<?>) {
-            for (Object value : (java.util.Collection<?>) extraValue) {
-                if (value != null && !value.toString().trim().isEmpty()) {
-                    return true;
-                }
-            }
-        } else if (extraValue instanceof Object[]) {
-            for (Object value : (Object[]) extraValue) {
-                if (value != null && !value.toString().trim().isEmpty()) {
-                    return true;
-                }
-            }
-        } else if (extraValue instanceof String[]) {
-            for (String value : (String[]) extraValue) {
-                if (value != null && !value.trim().isEmpty()) {
-                    return true;
-                }
-            }
-        }
-
-        if (item.getMetadata() == null) {
-            return false;
-        }
-
-        String[] values = item.getMetadata().getValues(ExtraProperties.SUMMARY);
-        if (values != null) {
-            for (String value : values) {
-                if (value != null && !value.trim().isEmpty()) {
-                    return true;
-                }
-            }
-        }
-
-        String single = item.getMetadata().get(ExtraProperties.SUMMARY);
-        return single != null && !single.trim().isEmpty();
     }
 
     private String readFirstValue(IItem item, String key) {
