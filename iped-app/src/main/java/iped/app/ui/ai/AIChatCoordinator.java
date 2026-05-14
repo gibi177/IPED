@@ -76,14 +76,15 @@ public class AIChatCoordinator {
                 .map(e -> e.getItem().getId())
                 .collect(Collectors.toList());
 
-        // Since the UI was restored, this evaluates to false
+        // Since the UI was restored, check if context changed OR if backend hashes are lacking
         boolean contextChanged = !newContextIds.equals(currentContextItemIds);
+        boolean needsInitialization = contextChanged || currentChatHashes.isEmpty();
 
         // Offload heavy lifting to a background thread
         new Thread(() -> {
             try {
-                // Step A: Initialize the Chat (Only if context changed)
-                if (contextChanged) {
+                // Step A: Initialize the Chat
+                if (needsInitialization) {
                     uiCallback.accept("**[System]:** Initializing context...\n\n");
                     chatHistory.clear();
                     currentChatHashes.clear();

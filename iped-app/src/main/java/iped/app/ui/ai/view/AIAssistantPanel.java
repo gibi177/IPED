@@ -556,7 +556,7 @@ public class AIAssistantPanel {
         new Thread(() -> {
             List<IItem> restoredItems = new ArrayList<>();
 
-            // // PATH A: The chat was previously sent to the backend
+            // PATH A: The chat was previously sent to the backend
             // Use the MD5 Chat Hashes to find the file
             if (conv.getChatHashes() != null && !conv.getChatHashes().isEmpty()) {
                 for (String hash : conv.getChatHashes()) {
