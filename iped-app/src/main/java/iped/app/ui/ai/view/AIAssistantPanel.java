@@ -10,6 +10,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
@@ -555,8 +556,9 @@ public class AIAssistantPanel {
         new Thread(() -> {
             List<IItem> restoredItems = new ArrayList<>();
 
+            // // PATH A: The chat was previously sent to the backend
             // Use the MD5 Chat Hashes to find the file
-            if (conv.getChatHashes() != null) {
+            if (conv.getChatHashes() != null && !conv.getChatHashes().isEmpty()) {
                 for (String hash : conv.getChatHashes()) {
                     try {
                         IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "hash:" + hash);
@@ -577,6 +579,28 @@ public class AIAssistantPanel {
                     }
                 }
             }
+            // PATH B: The chat is an unsent draft (Fallback to internal IPED Context IDs)
+            else if (conv.getContextIds() != null && !conv.getContextIds().isEmpty()) {
+                for (Integer itemId : conv.getContextIds()) {
+                    try {
+                        IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "id:" + itemId);
+                        MultiSearchResult result = searcher.multiSearch();
+
+                        if (result != null && result.getLength() > 0) {
+                            // Extract the fully qualified IItemId (which contains the source routing)
+                            IItemId qualifiedItemId = result.getItem(0);
+
+                            // Now the MultiSource can safely fetch the item
+                            IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
+                            if (item != null) {
+                                restoredItems.add(item);
+                            }
+                        }
+                    } catch (Exception e) {
+                        System.err.println("Could not restore context item ID: " + itemId);
+                    }
+                }
+            }
 
             // Push the items back into the visual sidebar safely on the UI thread
             if (!restoredItems.isEmpty()) {
@@ -591,7 +615,7 @@ public class AIAssistantPanel {
                     // the database was rebuilt and the integer IDs changed
                     List<Integer> freshIds = restoredItems.stream()
                             .map(IItem::getId)
-                            .collect(java.util.stream.Collectors.toList());
+                            .collect(Collectors.toList());
                     
                     if (coordinator != null) {
                         // Re-sync the coordinator to prevent a false "contextChanged" flag
