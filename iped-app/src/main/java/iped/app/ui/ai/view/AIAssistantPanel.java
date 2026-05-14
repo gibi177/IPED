@@ -96,6 +96,7 @@ public class AIAssistantPanel {
     private JLabel contextEmptyLabel;
     private JButton clearContextButton;
     private TitledBorder contextBorder;
+    private boolean isSwitchingChats = false; // Prevents the ContextChangeListener from overwriting saved data during chat switching
 
     private static final class ContextSummaryRow {
         private final String text;
@@ -132,7 +133,29 @@ public class AIAssistantPanel {
         AIContextManager.getInstance().addContextChangeListener(new ContextChangeListener() {
             @Override
             public void contextChanged(ContextChangeEvent event) {
+                // Update the Visual UI
                 refreshContextUI();
+
+                // Abort if system is currently switching chats
+                if (isSwitchingChats) return;
+                
+                // Real-Time State Sync for Unsaved Drafts
+                Conversation activeConv = ConversationManager.getInstance().getActiveConversation();
+                if (activeConv != null) {
+                    
+                    // Grab all valid file IDs currently sitting in the UI bucket
+                    List<Integer> currentIds = AIContextManager.getInstance().getContextFiles().stream()
+                            .map(IItem::getId)
+                            .collect(Collectors.toList());
+                    
+                    // Push them directly into the active conversation model
+                    activeConv.setContextIds(currentIds);
+                    activeConv.updateLastModified();
+                    
+                    // Save the draft to disk asynchronously so it survives a sudden app crash
+                    final Conversation convToSave = activeConv;
+                    new Thread(() -> ConversationPersistence.saveConversation(convToSave)).start();
+                }
             }
         });
     }
@@ -542,6 +565,10 @@ public class AIAssistantPanel {
      * Loads a selected conversation from the sidebar into the main chat window.
      */
     private void loadConversation(Conversation conv) {
+
+        // Lock the listener
+        isSwitchingChats = true;
+
         // Update State Manager
         ConversationManager.getInstance().setActiveConversation(conv);
         
@@ -556,74 +583,80 @@ public class AIAssistantPanel {
         new Thread(() -> {
             List<IItem> restoredItems = new ArrayList<>();
 
-            // PATH A: The chat was previously sent to the backend
-            // Use the MD5 Chat Hashes to find the file
-            if (conv.getChatHashes() != null && !conv.getChatHashes().isEmpty()) {
-                for (String hash : conv.getChatHashes()) {
-                    try {
-                        IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "hash:" + hash);
-                        MultiSearchResult result = searcher.multiSearch();
-                        
-                        if (result != null && result.getLength() > 0) {
-                            // Extract the fully qualified IItemId (which contains the source routing)
-                            IItemId qualifiedItemId = result.getItem(0);
+            try {
+                // PATH A: The chat was previously sent to the backend
+                // Use the MD5 Chat Hashes to find the file
+                if (conv.getChatHashes() != null && !conv.getChatHashes().isEmpty()) {
+                    for (String hash : conv.getChatHashes()) {
+                        try {
+                            IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "hash:" + hash);
+                            MultiSearchResult result = searcher.multiSearch();
+                            
+                            if (result != null && result.getLength() > 0) {
+                                // Extract the fully qualified IItemId (which contains the source routing)
+                                IItemId qualifiedItemId = result.getItem(0);
 
-                            // Now the MultiSource can safely fetch the item
-                            IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
-                            if (item != null) {
+                                // Now the MultiSource can safely fetch the item
+                                IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
+                                if (item != null) {
                                 restoredItems.add(item);
+                                }
                             }
+                        } catch (Exception e) {
+                            System.err.println("Could not restore context item hash: " + hash);
                         }
-                    } catch (Exception e) {
-                        System.err.println("Could not restore context item hash: " + hash);
                     }
                 }
-            }
-            // PATH B: The chat is an unsent draft (Fallback to internal IPED Context IDs)
-            else if (conv.getContextIds() != null && !conv.getContextIds().isEmpty()) {
-                for (Integer itemId : conv.getContextIds()) {
-                    try {
-                        IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "id:" + itemId);
-                        MultiSearchResult result = searcher.multiSearch();
+                // PATH B: The chat is an unsent draft (Fallback to internal IPED Context IDs)
+                else if (conv.getContextIds() != null && !conv.getContextIds().isEmpty()) {
+                    for (Integer itemId : conv.getContextIds()) {
+                        try {
+                            IPEDSearcher searcher = new IPEDSearcher(App.get().appCase, "id:" + itemId);
+                            MultiSearchResult result = searcher.multiSearch();
 
-                        if (result != null && result.getLength() > 0) {
-                            // Extract the fully qualified IItemId (which contains the source routing)
-                            IItemId qualifiedItemId = result.getItem(0);
+                            if (result != null && result.getLength() > 0) {
+                                // Extract the fully qualified IItemId (which contains the source routing)
+                                IItemId qualifiedItemId = result.getItem(0);
 
-                            // Now the MultiSource can safely fetch the item
-                            IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
-                            if (item != null) {
+                                // Now the MultiSource can safely fetch the item
+                                IItem item = App.get().appCase.getItemByItemId(qualifiedItemId);
+                                if (item != null) {
                                 restoredItems.add(item);
+                                }
                             }
+                        } catch (Exception e) {
+                            System.err.println("Could not restore context item ID: " + itemId);
                         }
-                    } catch (Exception e) {
-                        System.err.println("Could not restore context item ID: " + itemId);
                     }
                 }
-            }
-
-            // Push the items back into the visual sidebar safely on the UI thread
-            if (!restoredItems.isEmpty()) {
+            } finally {
                 SwingUtilities.invokeLater(() -> {
-                    // Check race condition: Did the user click a different chat while the search is ongoing?
-                    Conversation currentActive = ConversationManager.getInstance().getActiveConversation();
-                    if (currentActive == null || !currentActive.getId().equals(conv.getId())) {
-                        return; // Abort
-                    }
+                    try {
+                        if (!restoredItems.isEmpty()) {
+                            // Check race condition: Did the user click a different chat while the search is ongoing?
+                            Conversation currentActive = ConversationManager.getInstance().getActiveConversation();
+                            if (currentActive == null || !currentActive.getId().equals(conv.getId())) {
+                                return; // Abort
+                            }
 
-                    // Update the Coordinator's memory with the freshly fetched IDs just in case
-                    // the database was rebuilt and the integer IDs changed
-                    List<Integer> freshIds = restoredItems.stream()
-                            .map(IItem::getId)
-                            .collect(Collectors.toList());
-                    
-                    if (coordinator != null) {
-                        // Re-sync the coordinator to prevent a false "contextChanged" flag
-                        coordinator.loadHistoricalContext(conv.getChatHashes(), freshIds, conv.getMessages());
+                            // Update the Coordinator's memory with the freshly fetched IDs just in case
+                            // the database was rebuilt and the integer IDs changed
+                            List<Integer> freshIds = restoredItems.stream()
+                                    .map(IItem::getId)
+                                    .collect(Collectors.toList());
+                            
+                            if (coordinator != null) {
+                                // Re-sync the coordinator to prevent a false "contextChanged" flag
+                                coordinator.loadHistoricalContext(conv.getChatHashes(), freshIds, conv.getMessages());
+                            }
+                            
+                            // Restore the visual UI
+                            AIContextManager.getInstance().addContextFiles(restoredItems);
+                        }
+                    } finally {
+                        // Unlock the listener on the EDT
+                        isSwitchingChats = false;
                     }
-                    
-                    // Restore the visual UI
-                    AIContextManager.getInstance().addContextFiles(restoredItems);
                 });
             }
         }).start();
