@@ -55,7 +55,7 @@ public class AIAssistantPanel {
     private static final int CONTEXT_REMOVE_HOTZONE_PX = 28;
 
     // Main UI components
-    private JFrame frame; // main window
+    private JFrame frame;
     
     private ChatAreaPanel chatAreaPanel; // Contains the chat display and input area
 
@@ -223,10 +223,13 @@ public class AIAssistantPanel {
             }
         });
         
-        installTokenClickHandler();
-        
         centerPanel.add(chatAreaPanel, BorderLayout.CENTER);
         refreshChatArea();
+
+        chatAreaPanel.installTextPaneClickListener(
+            (hash, chunkId) -> navigateToItem(hash, chunkId), // Regra 1: Navega no IPED
+            this::refreshChatArea                             // Regra 2: Atualiza o estado visual
+        );
 
         JPanel tasksPanel = createTasksPanel();
         centerPanel.add(tasksPanel, BorderLayout.EAST);
@@ -252,48 +255,6 @@ public class AIAssistantPanel {
         addMessage("System", "AI Assistant ready. Connected to local Backend server.\nRight-click an HTML WhatsApp chat export to add it to the context, then type your question.");
         
         refreshSidebarList();
-    }
-
-    private void installTokenClickHandler() {
-        
-        JTextPane chatArea = chatAreaPanel.getChatArea();
-
-        chatArea.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getButton() != MouseEvent.BUTTON1) {
-                    return;
-                }
-
-                int offset = chatArea.viewToModel2D(e.getPoint());
-                
-                StyledDocument currentDoc = chatAreaPanel.getChatDocument();        
-                if (offset < 0 || chatAreaPanel.getChatDocument() == null) {
-                    return;
-                }
-
-                javax.swing.text.Element element = currentDoc.getCharacterElement(offset);
-                javax.swing.text.AttributeSet attributes = element.getAttributes();
-                Object tokenFlag = attributes.getAttribute(AIMarkdownRenderer.TOKEN_ATTRIBUTE);
-                
-                if (Boolean.TRUE.equals(tokenFlag)) {
-                    int start = element.getStartOffset();
-                    int end = element.getEndOffset();
-                    chatArea.setSelectionStart(start);
-                    chatArea.setSelectionEnd(Math.max(start, end));
-
-                    Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
-                    Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
-                    navigateToItem(String.valueOf(hash), String.valueOf(chunkId));
-                    return;
-                }
-
-                AIMarkdownRenderer markdownRenderer = chatAreaPanel.getMarkdownRenderer();
-                if (markdownRenderer != null && markdownRenderer.toggleThinkingAtOffset(offset)) {
-                    refreshChatArea();
-                }
-            }
-        });
     }
 
     private void navigateToItem(String hash, String chunkId) {

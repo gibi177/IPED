@@ -2,6 +2,7 @@ package iped.app.ui.ai.view;
 
 import java.awt.Dimension;
 import java.util.List;
+import java.util.function.BiConsumer;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.BorderLayout;
@@ -200,12 +201,63 @@ public class ChatAreaPanel extends JPanel {
     }
 
     /**
-     * Transfere o foco do teclado diretamente para a área de input de texto.
+     * Requests focus for the input area
      */
     public void requestFocusToInput() {
         if (inputArea != null) {
             inputArea.requestFocusInWindow();
         }
+    }
+
+    public void installTextPaneClickListener(BiConsumer<String, String> navigationCallback, Runnable refreshCallback){
+        if (chatArea == null) {
+            return;
+        }
+        chatArea.addMouseListener(new java.awt.event.MouseAdapter() {
+            @Override
+            public void mouseClicked(java.awt.event.MouseEvent e) {
+                if (e.getButton() != java.awt.event.MouseEvent.BUTTON1) {
+                    return;
+                }
+                
+                // converts the clicked point to a document offset
+                int offset = chatArea.viewToModel2D(e.getPoint());
+                StyledDocument currentDoc = getChatDocument();        
+                if (offset < 0 || currentDoc == null) {
+                    return;
+                }
+
+
+                javax.swing.text.Element element = chatDocument.getCharacterElement(offset);
+                javax.swing.text.AttributeSet attributes = element.getAttributes();
+                Object tokenFlag = attributes.getAttribute(AIMarkdownRenderer.TOKEN_ATTRIBUTE);
+                
+                // 1. clicks on tokens with navigation metadata (e.g., hash and chunkId)
+                if (Boolean.TRUE.equals(tokenFlag)) {
+                    int start = element.getStartOffset();
+                    int end = element.getEndOffset();
+                    chatArea.setSelectionStart(start);
+                    chatArea.setSelectionEnd(Math.max(start, end));
+
+                    Object hash = attributes.getAttribute(AIMarkdownRenderer.TOKEN_HASH_ATTRIBUTE);
+                    Object chunkId = attributes.getAttribute(AIMarkdownRenderer.TOKEN_CHUNK_ID_ATTRIBUTE);
+                    
+                    // Invoke the navigation callback with the extracted metadata
+                    if (navigationCallback != null) {
+                        navigationCallback.accept(String.valueOf(hash), String.valueOf(chunkId));
+                    }
+                    return;
+                }
+
+                // 2. Cenário: Clique para expandir/recolher bloco de raciocínio da IA
+                if (markdownRenderer != null && markdownRenderer.toggleThinkingAtOffset(offset)) {
+                    if (refreshCallback != null) {
+                        refreshCallback.run();
+                    }
+                }
+            }
+        });
+
     }
     
 }
