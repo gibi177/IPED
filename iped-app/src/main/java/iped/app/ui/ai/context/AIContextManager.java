@@ -7,6 +7,7 @@ import javax.swing.SwingUtilities;
 import javax.swing.event.EventListenerList;
 
 import iped.app.ui.ai.model.ContextFileEntry;
+import iped.app.ui.ai.util.AIWhatsappChatExtractor;
 import iped.app.ui.ai.util.SummaryValueExtractor;
 import iped.data.IItem;
 import iped.engine.lucene.analysis.CategoryTokenizer;
@@ -44,6 +45,8 @@ public class AIContextManager {
     
     /** Listener list for context change events */
     private final EventListenerList listeners;
+
+    private AIWhatsappChatExtractor chatExtractor = new AIWhatsappChatExtractor();
     
     /**
      * Private constructor to enforce singleton pattern.
@@ -222,7 +225,7 @@ public class AIContextManager {
     }
 
     private String getRejectionReason(IItem item) {
-        if (!isWhatsAppChatItem(item)) {
+        if (!chatExtractor.isPotentiallyValidChat(item)) {
             return "Rejected: Not a WhatsApp chat item.";
         }
 
@@ -239,26 +242,6 @@ public class AIContextManager {
             return "Rejected: Communication is empty.";
         }
         return null;
-    }
-
-    private boolean isWhatsAppChatItem(IItem item) {
-        if (item == null) {
-            return false;
-        }
-
-        String chatContentType = WhatsAppParser.WHATSAPP_CHAT.toString();
-        if (item.getMediaType() != null && chatContentType.equals(item.getMediaType().toString())) {
-            return true;
-        }
-
-        if (item.getMetadata() != null) {
-            String indexedContentType = item.getMetadata().get(StandardParser.INDEXER_CONTENT_TYPE);
-            if (chatContentType.equals(indexedContentType)) {
-                return true;
-            }
-        }
-
-        return false;
     }
 
     private boolean hasEmptyFilesCategory(IItem item) {
