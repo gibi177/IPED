@@ -445,7 +445,7 @@ public class MenuClass extends JPopupMenu {
             assistantPanel.startNewConversationWithCurrentContext(itemsToAdd);
         } else if (!activeConversation.hasAssistantReply()) {
             AIContextManager.getInstance().addContextFiles(itemsToAdd);
-            assistantPanel.showPanel();
+            assistantPanel.showFrame();
         } else {
             int result = JOptionPane.showConfirmDialog(
                     null,
@@ -457,7 +457,7 @@ public class MenuClass extends JPopupMenu {
             if (result == JOptionPane.YES_OPTION) {
                 assistantPanel.startNewConversationWithCurrentContext(itemsToAdd);
             } else if (result == JOptionPane.NO_OPTION) {
-                assistantPanel.showPanel();
+                assistantPanel.showFrame();
             }
         }
     }
