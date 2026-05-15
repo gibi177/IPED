@@ -16,7 +16,6 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import javax.swing.border.TitledBorder;
 import javax.swing.text.BadLocationException;
-import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.StyledDocument;
 
 import iped.app.ui.ai.AIChatCoordinator;
@@ -63,13 +62,10 @@ public class AIAssistantPanel {
 
     // Main UI components
     private JFrame frame; // main window
-    private JTextPane chatArea; 
-    private JScrollPane chatScrollPane;
-    private StyledDocument chatDocument;
-    private JTextArea inputArea;
-    private JButton sendButton;
-    private JLabel statusLabel;
-    private JProgressBar progressBar;
+    
+    private ChatAreaPanel chatAreaPanel; // Contains the chat display and input area
+
+    private HeaderPanel headerPanel;
 
     private AIMarkdownRenderer markdownRenderer;
     private AIChatMessage draftMessage;
@@ -212,8 +208,9 @@ public class AIAssistantPanel {
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        // Header
-        mainPanel.add(createHeaderPanel(), BorderLayout.NORTH);
+        // Instancia o painel passando o título e a ação de toggle via expressão lambda
+        headerPanel = new HeaderPanel(title, e -> toggleSidebar());
+        mainPanel.add(headerPanel, BorderLayout.NORTH);
 
         // Chat Workspace
         JPanel chatWorkspacePanel = new JPanel(new BorderLayout(5, 5));
@@ -221,33 +218,41 @@ public class AIAssistantPanel {
         JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
         centerPanel.add(createContextSection(), BorderLayout.NORTH);
 
-        // Chat display area setup
-        chatArea = new JTextPane();
-        chatArea.setEditable(false);
-        chatArea.setBackground(new Color(0xf5, 0xf5, 0xf5));
-        chatArea.setBorder(BorderFactory.createEmptyBorder(8, 8, 8, 8));
-        chatDocument = new DefaultStyledDocument();
-        chatArea.setDocument(chatDocument);
+        String sendText = "Send";
+        try { sendText = Messages.getString("AIAssistant.Send"); } catch (Exception e) {}
+
+        chatAreaPanel = new ChatAreaPanel(PANEL_WIDTH, sendText);
+       
+        // Vinculação dos Listeners de Interação aos Componentes Encapsulados
+        chatAreaPanel.getSendButton().addActionListener(e -> handleSendAction());
+        chatAreaPanel.getInputArea().addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyPressed(KeyEvent e) {
+                if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
+                    e.consume(); // Previne a quebra de linha padrão do JTextArea
+                    handleSendAction();
+                }
+            }
+        });
+        
+        // acoplamento temporario
         try {
-            markdownRenderer = new AIMarkdownRenderer(chatArea);
-            chatDocument = markdownRenderer.getDocument();
+            markdownRenderer = new AIMarkdownRenderer(chatAreaPanel.getChatArea());
+            chatAreaPanel.setChatDocument(markdownRenderer.getDocument());
             installTokenClickHandler();
         } catch (Throwable t) {
             System.err.println("Failed to initialize markdown renderer: " + t.getMessage());
             t.printStackTrace();
             markdownRenderer = null;
         }
-        refreshChatArea();
         
-        chatScrollPane = new JScrollPane(chatArea);
-        chatScrollPane.setPreferredSize(new Dimension(PANEL_WIDTH, 400));
-        centerPanel.add(chatScrollPane, BorderLayout.CENTER);
+        centerPanel.add(chatAreaPanel, BorderLayout.CENTER);
+        refreshChatArea();
 
         JPanel tasksPanel = createTasksPanel();
         centerPanel.add(tasksPanel, BorderLayout.EAST);
 
         chatWorkspacePanel.add(centerPanel, BorderLayout.CENTER);
-        chatWorkspacePanel.add(createBottomPanel(), BorderLayout.SOUTH);
 
         // Conversations Sidebar
         sidebarPanel = createSidebarPanel();
@@ -271,6 +276,10 @@ public class AIAssistantPanel {
     }
 
     private void installTokenClickHandler() {
+        
+        JTextPane chatArea = chatAreaPanel.getChatArea();
+        StyledDocument doc = chatAreaPanel.getChatDocument();
+
         chatArea.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseClicked(MouseEvent e) {
@@ -279,11 +288,11 @@ public class AIAssistantPanel {
                 }
 
                 int offset = chatArea.viewToModel2D(e.getPoint());
-                if (offset < 0 || chatDocument == null) {
+                if (offset < 0 || chatAreaPanel.getChatDocument() == null) {
                     return;
                 }
 
-                javax.swing.text.Element element = chatDocument.getCharacterElement(offset);
+                javax.swing.text.Element element = doc.getCharacterElement(offset);
                 javax.swing.text.AttributeSet attributes = element.getAttributes();
                 Object tokenFlag = attributes.getAttribute(AIMarkdownRenderer.TOKEN_ATTRIBUTE);
                 if (Boolean.TRUE.equals(tokenFlag)) {
@@ -370,39 +379,6 @@ public class AIAssistantPanel {
                 // Continue searching if there's an error with this item
             }
         }
-    }
-
-    private JPanel createHeaderPanel() {
-        JPanel headerPanel = new JPanel(new BorderLayout());
-
-        // Toggle Sidebar Button
-        JButton toggleSidebarBtn = new JButton("☰");
-        toggleSidebarBtn.setMargin(new Insets(2, 6, 2, 6));
-        toggleSidebarBtn.setFocusPainted(false);
-        toggleSidebarBtn.setToolTipText("Toggle Sidebar");
-        toggleSidebarBtn.addActionListener(e -> toggleSidebar());
-
-        String titleText = "AI Assistant";
-        try { titleText = Messages.getString("AIAssistant.Title"); } catch (Exception e) {}
-        JLabel titleLabel = new JLabel(titleText);
-        titleLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-
-        statusLabel = new JLabel("● Connected to local backend server");
-        statusLabel.setForeground(new Color(0, 150, 0)); // Green for active
-
-        // Group toggle button and title
-        JPanel titleArea = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 0));
-        titleArea.add(toggleSidebarBtn);
-        titleArea.add(titleLabel);
-
-        JPanel leftPanel = new JPanel(new BorderLayout(0, 5));
-        leftPanel.add(titleArea, BorderLayout.NORTH);
-        leftPanel.add(statusLabel, BorderLayout.SOUTH);
-
-        headerPanel.add(leftPanel, BorderLayout.WEST);
-        headerPanel.setBorder(BorderFactory.createMatteBorder(0, 0, 1, 0, Color.LIGHT_GRAY));
-
-        return headerPanel;
     }
 
     private JPanel createSidebarPanel() {
@@ -558,7 +534,7 @@ public class AIAssistantPanel {
         refreshChatArea();
         
         addMessage("System", "Started a new conversation session.");
-        inputArea.requestFocusInWindow();
+        chatAreaPanel.getInputArea().requestFocusInWindow();
     }
 
     /**
@@ -855,7 +831,7 @@ public class AIAssistantPanel {
             btn.setMaximumSize(new Dimension(200, 30));
             // Firing a pre-written prompt directly into the input area logic
             btn.addActionListener(e -> {
-                inputArea.setText(taskPrompts.get(task));
+                chatAreaPanel.getInputArea().setText(taskPrompts.get(task));
                 handleSendAction();
             });
             panel.add(btn);
@@ -876,54 +852,15 @@ public class AIAssistantPanel {
         if (coordinator != null) {
             coordinator.clearHistory();
         }
-        
-        // Wipe the UI screen
-        try {
-            if (markdownRenderer != null) {
-                markdownRenderer.commitDraft(); // Resets anchor to -1
-            }
-            chatDocument.remove(0, chatDocument.getLength());
-        } catch (BadLocationException e) {
-            System.err.println("Error clearing chat document: " + e.getMessage());
+        if (markdownRenderer != null) {
+            markdownRenderer.commitDraft(); // Resets anchor to -1
         }
+
+        chatAreaPanel.clearChatScreen();
     }
 
-    private JPanel createBottomPanel() {
-        JPanel bottomPanel = new JPanel(new BorderLayout(5, 5));
-
-        progressBar = new JProgressBar();
-        progressBar.setIndeterminate(true);
-        progressBar.setVisible(false);
-
-        inputArea = new JTextArea(6, 20);
-        inputArea.setLineWrap(true);
-        inputArea.setBorder(BorderFactory.createLineBorder(Color.GRAY));
-        
-        // Listen for "Enter" key to trigger send, allowing "Shift+Enter" for new lines
-        inputArea.addKeyListener(new KeyAdapter() {
-            @Override
-            public void keyPressed(KeyEvent e) {
-                if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
-                    e.consume(); // Prevent adding a newline character
-                    handleSendAction();
-                }
-            }
-        });
-
-        String sendText = "Send";
-        try { sendText = Messages.getString("AIAssistant.Send"); } catch (Exception e) {}
-
-        sendButton = new JButton(sendText);
-        sendButton.addActionListener(e -> handleSendAction());
-
-        bottomPanel.add(progressBar, BorderLayout.NORTH);
-        bottomPanel.add(new JScrollPane(inputArea), BorderLayout.CENTER);
-        bottomPanel.add(sendButton, BorderLayout.EAST);
-
-        return bottomPanel;
-    } 
-
     private void refreshChatArea() {
+        JScrollPane chatScrollPane = chatAreaPanel != null ? chatAreaPanel.getChatScrollPane() : null;
         JScrollBar verticalBar = chatScrollPane != null ? chatScrollPane.getVerticalScrollBar() : null;
         boolean shouldAutoFollow = shouldAutoFollow(verticalBar);
         int previousScrollValue = verticalBar != null ? verticalBar.getValue() : -1;
@@ -935,14 +872,16 @@ public class AIAssistantPanel {
         }
 
         SwingUtilities.invokeLater(() -> {
-            if (chatScrollPane == null) {
+            JScrollPane scrollPane = chatAreaPanel != null ? chatAreaPanel.getChatScrollPane() : null;
+            if (scrollPane == null) {
                 return;
             }
 
             JScrollBar bar = chatScrollPane.getVerticalScrollBar();
             if (shouldAutoFollow) {
                 bar.setValue(bar.getMaximum());
-                chatArea.setCaretPosition(chatArea.getDocument().getLength());
+                JTextPane area = chatAreaPanel.getChatArea();
+                area.setCaretPosition(area.getDocument().getLength());
                 return;
             }
 
@@ -964,10 +903,15 @@ public class AIAssistantPanel {
 
     private void renderMessagesFallback() {
         try {
-            chatDocument.remove(0, chatDocument.getLength());
+            StyledDocument doc = chatAreaPanel.getChatDocument();
+            if(doc == null) {
+                return;
+            }
+            doc.remove(0, doc.getLength());
+            
             for (AIChatMessage message : buildRenderableMessages()) {
-                chatDocument.insertString(
-                    chatDocument.getLength(),
+                doc.insertString(
+                    doc.getLength(),
                     "[" + message.getTime() + "] " + message.getSender() + "\n" + message.getContent() + "\n\n",
                     null
                 );
@@ -1082,7 +1026,7 @@ public class AIAssistantPanel {
         }
         frame.toFront();
         frame.requestFocus();
-        inputArea.requestFocusInWindow();
+        chatAreaPanel.getInputArea().requestFocusInWindow();
     }
 
     private void beginStreaming(AIChatMessage message) {
@@ -1167,7 +1111,7 @@ public class AIAssistantPanel {
      * The main execution block linking user intent to the background Coordinator.
      */
     private void handleSendAction() {
-        String text = inputArea.getText().trim();
+        String text = chatAreaPanel.getInputArea().getText().trim();
         if (!text.isEmpty()) {
             if (!ensureChatServiceInitialized()) {
                 return;
@@ -1181,7 +1125,7 @@ public class AIAssistantPanel {
 
             // Print user message immediately
             addMessage("You", text, "user");
-            inputArea.setText("");
+            chatAreaPanel.getInputArea().setText("");
 
             // Push message to the manager
             ConversationManager.getInstance().addMessageToActive(
@@ -1239,13 +1183,12 @@ public class AIAssistantPanel {
      */
     private void setProcessing(boolean processing) {
         this.processing = processing;
-        progressBar.setVisible(processing);
-        sendButton.setEnabled(!processing);
-        inputArea.setEnabled(!processing);
+        chatAreaPanel.setProcessing(processing);
         frame.setCursor(processing ? Cursor.getPredefinedCursor(Cursor.WAIT_CURSOR) : Cursor.getDefaultCursor());
     }
 
     private void appendFinalizedMessage(AIChatMessage message) {
+        JScrollPane chatScrollPane = chatAreaPanel != null ? chatAreaPanel.getChatScrollPane() : null;
         if (chatScrollPane == null) {
             refreshChatArea();
             return;
@@ -1264,6 +1207,7 @@ public class AIAssistantPanel {
             return;
         }
 
+        JScrollPane chatScrollPane = chatAreaPanel != null ? chatAreaPanel.getChatScrollPane() : null;
         if (chatScrollPane == null || markdownRenderer == null) {
             refreshChatArea();
             return;
@@ -1278,18 +1222,22 @@ public class AIAssistantPanel {
     }
 
     private void restoreScrollAfterIncrementalUpdate(boolean shouldAutoFollow, int previousScrollValue) {
+        JScrollPane chatScrollPane = chatAreaPanel != null ? chatAreaPanel.getChatScrollPane() : null;
         if (chatScrollPane == null) {
             return;
         }
 
         SwingUtilities.invokeLater(() -> {
-            if (chatScrollPane == null) {
+            // Verifica novamente na EDT para evitar Race Conditions
+            JScrollPane pane = chatAreaPanel != null ? chatAreaPanel.getChatScrollPane() : null;
+            if (pane == null) {
                 return;
             }
 
             JScrollBar bar = chatScrollPane.getVerticalScrollBar();
             if (shouldAutoFollow) {
                 bar.setValue(bar.getMaximum());
+                JTextPane chatArea = chatAreaPanel.getChatArea();
                 chatArea.setCaretPosition(chatArea.getDocument().getLength());
                 return;
             }
