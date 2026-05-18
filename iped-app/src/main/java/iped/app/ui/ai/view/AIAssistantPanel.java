@@ -65,10 +65,7 @@ public class AIAssistantPanel {
 
     // Sidebar components
     private JSplitPane splitPane;
-    private JPanel sidebarPanel;
-    private JButton newChatButton;
-    private JList<Conversation> conversationList;
-    private DefaultListModel<Conversation> conversationListModel;
+    private SidebarPanel sidebarPanel;
 
     // Service layer that handles business logic and threading
     private AIChatCoordinator coordinator;
@@ -177,7 +174,7 @@ public class AIAssistantPanel {
 
         refreshSidebarList();
         refreshChatArea();
-        conversationList.setSelectedValue(newConversation, true);
+        sidebarPanel.getConversationList().setSelectedValue(newConversation, true);
         showFrame();
     }
 
@@ -237,7 +234,32 @@ public class AIAssistantPanel {
         chatWorkspacePanel.add(centerPanel, BorderLayout.CENTER);
 
         // Conversations Sidebar
-        sidebarPanel = createSidebarPanel();
+        sidebarPanel = new SidebarPanel(frame, new SidebarPanel.SidebarListener() {
+            @Override
+            public void onConversationSelected(Conversation conversation) {
+                loadConversation(conversation);
+            }
+
+            @Override
+            public void onNewChatRequested() {
+                startNewChat();
+            }
+
+            @Override
+            public void onConversationDeleted(Conversation conversation, boolean isActiveDeleted) {
+                // Se a conversa que o usuário estava visualizando foi a deletada, limpa a tela ou carrega a próxima
+                if (isActiveDeleted) {
+                    Conversation active = ConversationManager.getInstance().getActiveConversation();
+                    if (active != null) {
+                        loadConversation(active);
+                    } else {
+                        clearChatScreenAndMemory();
+                        AIContextManager.getInstance().clearContext();
+                        refreshChatArea();
+                    }
+                }
+            }
+        }, ConversationManager.getInstance());
 
         // The SplitPane connecting them
         splitPane = new JSplitPane(JSplitPane.HORIZONTAL_SPLIT, sidebarPanel, chatWorkspacePanel);
@@ -324,125 +346,6 @@ public class AIAssistantPanel {
         }
     }
 
-    private JPanel createSidebarPanel() {
-        JPanel panel = new JPanel(new BorderLayout(0, 5));
-        panel.setMinimumSize(new Dimension(150, 0)); 
-        panel.setBorder(BorderFactory.createEmptyBorder(0, 0, 0, 5)); 
-
-        newChatButton = new JButton("+ New Chat");
-        newChatButton.setFont(newChatButton.getFont().deriveFont(Font.BOLD));
-        newChatButton.addActionListener(e -> startNewChat());
-        
-        panel.add(newChatButton, BorderLayout.NORTH);
-
-        // Conversation List UI
-        conversationListModel = new DefaultListModel<>();
-        conversationList = new JList<>(conversationListModel);
-        conversationList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        
-        // Custom Renderer to make the items look like modern chat tabs
-        conversationList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
-            JPanel rowPanel = new JPanel(new BorderLayout(8, 0));
-            rowPanel.setBorder(BorderFactory.createEmptyBorder(8, 10, 8, 10)); // Padded
-            rowPanel.setOpaque(true);
-            rowPanel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-
-            if (value instanceof Conversation) {
-                Conversation conv = (Conversation) value;
-                
-                JLabel textLabel = new JLabel(conv.getTitle());
-                textLabel.setFont(list.getFont());
-                textLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
-                
-                JLabel removeLabel = new JLabel("X");
-                removeLabel.setFont(list.getFont().deriveFont(Font.BOLD));
-                // Only show red 'X' if selected, otherwise subtle gray, to keep UI clean
-                removeLabel.setForeground(isSelected ? new Color(160, 0, 0) : Color.LIGHT_GRAY);
-                
-                rowPanel.add(textLabel, BorderLayout.CENTER);
-                rowPanel.add(removeLabel, BorderLayout.EAST);
-            }
-            return rowPanel;
-        });
-
-        // Wire up the click listener for the sidebar tabs
-        conversationList.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getButton() != MouseEvent.BUTTON1) return;
-                
-                int index = conversationList.locationToIndex(e.getPoint());
-                if (index < 0) return;
-                
-                Rectangle cellBounds = conversationList.getCellBounds(index, index);
-                if (cellBounds == null || !cellBounds.contains(e.getPoint())) return;
-
-                Conversation selected = conversationListModel.getElementAt(index);
-                
-                // Check if clicked the 'X' hotzone
-                if (e.getX() >= cellBounds.x + cellBounds.width - 28) {
-                    promptDeleteConversation(selected);
-                    return;
-                }
-                
-                // Otherwise, load the conversation
-                Conversation active = ConversationManager.getInstance().getActiveConversation();
-
-                // Only load if they clicked a different conversation
-                if (selected != null && (active == null || !active.getId().equals(selected.getId()))) {
-                    loadConversation(selected);
-                }
-            }
-        });
-
-        // Hide the scrollpane borders to blend seamlessly into the sidebar
-        JScrollPane scrollPane = new JScrollPane(conversationList);
-        scrollPane.setBorder(BorderFactory.createEmptyBorder()); 
-        
-        panel.add(scrollPane, BorderLayout.CENTER);
-
-        return panel;
-    }
-
-    /**
-     * Confirmation to delete chat when clicking the 'X' on the Conversation list entry
-     */
-    private void promptDeleteConversation(Conversation conv) {
-        int confirm = JOptionPane.showConfirmDialog(frame,
-            "Are you sure you want to delete this chat?\n\"" + conv.getTitle() + "\"",
-            "Delete Chat",
-            JOptionPane.YES_NO_OPTION,
-            JOptionPane.WARNING_MESSAGE);
-            
-        if (confirm == JOptionPane.YES_OPTION) {
-            // Delete the actual JSON file from the hard drive
-            ConversationPersistence.deleteConversation(conv.getId());
-            
-            // Remove from memory
-            ConversationManager.getInstance().removeConversation(conv);
-            
-            // Check if the chat currently being looked at was deleted
-            Conversation active = ConversationManager.getInstance().getActiveConversation();
-            if (active == null || active.getId().equals(conv.getId())) {
-                List<Conversation> remaining = ConversationManager.getInstance().getConversations();
-                
-                if (!remaining.isEmpty()) {
-                    // Option A: Load the conversation at the top of the list
-                    loadConversation(remaining.get(0));
-                    refreshSidebarList();
-                } else {
-                    // Option B: The list is completely empty
-                    ConversationManager.getInstance().setActiveConversation(null);
-                    clearChatScreenAndMemory();
-                    AIContextManager.getInstance().clearContext();
-                    refreshSidebarList();
-                }
-            } else {
-                refreshSidebarList(); // Just removes it visually from the sidebar
-            }
-        }
-    }
-
     private void toggleSidebar() {
         if (sidebarPanel.isVisible()) {
             sidebarPanel.setVisible(false);
@@ -456,11 +359,9 @@ public class AIAssistantPanel {
     }
 
     private void refreshSidebarList() {
-        conversationListModel.clear();
-        for (Conversation conv : ConversationManager.getInstance().getConversations()) {
-            conversationListModel.addElement(conv);
+        if (sidebarPanel != null) {
+            sidebarPanel.refreshList();
         }
-        conversationList.repaint();
     }
 
     private void startNewChat() {
@@ -587,7 +488,7 @@ public class AIAssistantPanel {
         
         // Redraw the screen
         refreshChatArea();
-        conversationList.setSelectedValue(conv, true);
+        sidebarPanel.getConversationList().setSelectedValue(conv, true);
     }
 
     private JPanel createContextSection() {
