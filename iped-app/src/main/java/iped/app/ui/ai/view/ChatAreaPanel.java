@@ -18,7 +18,6 @@ import javax.swing.JTextArea;
 import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
-import javax.swing.text.DefaultStyledDocument;
 import javax.swing.text.StyledDocument;
 
 import iped.app.ui.ai.model.AIChatMessage;
@@ -249,7 +248,7 @@ public class ChatAreaPanel extends JPanel {
                     return;
                 }
 
-                // 2. Cenário: Clique para expandir/recolher bloco de raciocínio da IA
+                // 2. clicks on other tokens without navigation metadata will toggle "thinking" state for that token
                 if (markdownRenderer != null && markdownRenderer.toggleThinkingAtOffset(offset)) {
                     if (refreshCallback != null) {
                         refreshCallback.run();

@@ -25,12 +25,9 @@ import iped.app.ui.ai.context.ConversationManager;
 import iped.app.ui.ai.util.ConversationPersistence;
 
 /**
- * Componente de interface gráfica responsável pela barra lateral de conversas.
- * Aplica os princípios SRP (Responsabilidade Única) e DIP (Inversão de Dependência).
+ * Sidebar component posponsable for displaying the list of conversations and allowing users to create, select, or delete conversations.
  */
 public class SidebarPanel extends JPanel {
-
-
 
     private JButton newChatButton;
     private JList<Conversation> conversationList;
@@ -42,7 +39,7 @@ public class SidebarPanel extends JPanel {
     private final ConversationManager conversationManager;
 
     /**
-     * Interface de contrato para comunicação com o painel principal (AIAssistantPanel).
+     * Contract for the SidebarPanel's event listener, allowing external components to react to user interactions
      */
     public interface SidebarListener {
         void onConversationSelected(Conversation conversation);
@@ -51,10 +48,10 @@ public class SidebarPanel extends JPanel {
     }
 
     /**
-     * Construtor da Sidebar com injeção de dependências.
+     * Constructs the SidebarPanel with necessary dependencies and initializes the UI components.
      * 
-     * @param parentFrame Componente pai necessário para posicionamento do JOptionPane.
-     * @param listener    Implementação do contrato de eventos da barra lateral.
+     * @param parentFrame Parent component used for dialog positioning.
+     * @param listener    External listener to handle sidebar events (selection, creation, deletion).
      */
     public SidebarPanel(Component parentFrame, SidebarListener listener, ConversationManager conversationManager) {
         this.parentFrame = parentFrame;
@@ -72,7 +69,7 @@ public class SidebarPanel extends JPanel {
     }
 
     private void initComponents() {
-        // Inicialização do botão de criação de chat
+        // Initializes the "New Chat" button with styling and action listener
         newChatButton = new JButton("+ New Chat");
         newChatButton.setFont(newChatButton.getFont().deriveFont(Font.BOLD));
         newChatButton.addActionListener(e -> {
@@ -82,7 +79,7 @@ public class SidebarPanel extends JPanel {
         });
         add(newChatButton, BorderLayout.NORTH);
 
-        // Inicialização da lista de componentes
+        // Initializes the conversation list with a custom cell renderer and mouse listener for selection and deletion
         conversationListModel = new DefaultListModel<>();
         conversationList = new JList<>(conversationListModel);
         conversationList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
@@ -140,7 +137,6 @@ public class SidebarPanel extends JPanel {
                     return;
                 }
                 
-                // Seleção de nova conversa
                 Conversation active = conversationManager.getActiveConversation();
                 if (selected != null && (active == null || !active.getId().equals(selected.getId()))) {
                     if (listener != null) {
@@ -160,7 +156,7 @@ public class SidebarPanel extends JPanel {
     }
 
     /**
-     * Sincroniza os dados locais do modelo visual com o ConversationManager.
+     *  Sincronized method to refresh the conversation list UI based on the current state of ConversationManager.
      */
     public void refreshList() {
         conversationListModel.clear();
@@ -170,9 +166,6 @@ public class SidebarPanel extends JPanel {
         conversationList.repaint();
     }
 
-    /**
-     * Permite que a classe externa controle a seleção visual do componente.
-     */
     public void setSelectedValue(Conversation conv, boolean shouldScroll) {
         conversationList.setSelectedValue(conv, shouldScroll);
     }

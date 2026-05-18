@@ -193,7 +193,7 @@ public class AIAssistantPanel {
         JPanel mainPanel = new JPanel(new BorderLayout(5, 5));
         mainPanel.setBorder(new EmptyBorder(10, 10, 10, 10));
 
-        // Instancia o painel passando o título e a ação de toggle via expressão lambda
+        // Header with title and toggle sidebar button
         headerPanel = new HeaderPanel(title, e -> toggleSidebar());
         mainPanel.add(headerPanel, BorderLayout.NORTH);
 
@@ -208,13 +208,12 @@ public class AIAssistantPanel {
 
         chatAreaPanel = new ChatAreaPanel(PANEL_WIDTH, sendText);
        
-        // Vinculação dos Listeners de Interação aos Componentes Encapsulados
         chatAreaPanel.getSendButton().addActionListener(e -> handleSendAction());
         chatAreaPanel.getInputArea().addKeyListener(new KeyAdapter() {
             @Override
             public void keyPressed(KeyEvent e) {
                 if (e.getKeyCode() == KeyEvent.VK_ENTER && !e.isShiftDown()) {
-                    e.consume(); // Previne a quebra de linha padrão do JTextArea
+                    e.consume();
                     handleSendAction();
                 }
             }
@@ -224,8 +223,8 @@ public class AIAssistantPanel {
         refreshChatArea();
 
         chatAreaPanel.installTextPaneClickListener(
-            (hash, chunkId) -> navigateToItem(hash, chunkId), // Regra 1: Navega no IPED
-            this::refreshChatArea                             // Regra 2: Atualiza o estado visual
+            (hash, chunkId) -> navigateToItem(hash, chunkId),
+            this::refreshChatArea
         );
 
         JPanel tasksPanel = createTasksPanel();
@@ -247,7 +246,6 @@ public class AIAssistantPanel {
 
             @Override
             public void onConversationDeleted(Conversation conversation, boolean isActiveDeleted) {
-                // Se a conversa que o usuário estava visualizando foi a deletada, limpa a tela ou carrega a próxima
                 if (isActiveDeleted) {
                     Conversation active = ConversationManager.getInstance().getActiveConversation();
                     if (active != null) {
