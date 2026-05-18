@@ -1,8 +1,6 @@
 package iped.app.ui.ai.view;
 
 import java.awt.*;
-import java.awt.event.MouseAdapter;
-import java.awt.event.MouseEvent;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
@@ -12,12 +10,9 @@ import java.util.stream.Collectors;
 
 import javax.swing.*;
 import javax.swing.border.EmptyBorder;
-import javax.swing.border.TitledBorder;
-import javax.swing.text.StyledDocument;
 
 import iped.app.ui.ai.AIChatCoordinator;
 import iped.app.ui.ai.model.AIChatMessage;
-import iped.app.ui.ai.model.ContextFileEntry;
 import iped.app.ui.ai.model.Conversation;
 import iped.app.ui.ai.context.AIContextManager;
 import iped.app.ui.ai.context.ContextChangeEvent;
@@ -51,8 +46,6 @@ public class AIAssistantPanel {
     private static final int VERTICAL_OFFSET = 120;
     private static final double HEIGHT_PERCENTAGE = 0.8;
     private static final int PANEL_WIDTH = 750;
-    private static final int CONTEXT_VISIBLE_ITEMS = 5;
-    private static final int CONTEXT_REMOVE_HOTZONE_PX = 28;
 
     // Main UI components
     private JFrame frame;
@@ -71,27 +64,12 @@ public class AIAssistantPanel {
     private AIChatCoordinator coordinator;
 
     // Context-related UI components
-    private JPanel contextPanel;
-    private JList<Object> contextList;
-    private DefaultListModel<Object> contextListModel;
-    private JLabel contextEmptyLabel;
-    private JButton clearContextButton;
-    private TitledBorder contextBorder;
+    private ContextPanel contextPanel;
+
+    private final ConversationManager conversationManager;
+    private final AIContextManager contextManager;
+
     private boolean isSwitchingChats = false; // Prevents the ContextChangeListener from overwriting saved data during chat switching
-
-    private static final class ContextSummaryRow {
-        private final String text;
-
-        private ContextSummaryRow(String text) {
-            this.text = text;
-        }
-
-        @Override
-        public String toString() {
-            return text;
-        }
-    }
-
 
     // Singleton instance ensures only one floating panel exists at a time
     private static AIAssistantPanel instance;
@@ -107,25 +85,24 @@ public class AIAssistantPanel {
      * Private constructor: This is the application's wiring hub.
      */
     private AIAssistantPanel() {
+        this.conversationManager = ConversationManager.getInstance();
+        this.contextManager = AIContextManager.getInstance();
         createUI();
 
         // Subscribe to the State Manager.
         // We use the Observer pattern to passively listen for context changes.
-        AIContextManager.getInstance().addContextChangeListener(new ContextChangeListener() {
+        this.contextManager.addContextChangeListener(new ContextChangeListener() {
             @Override
             public void contextChanged(ContextChangeEvent event) {
-                // Update the Visual UI
-                refreshContextUI();
-
                 // Abort if system is currently switching chats
                 if (isSwitchingChats) return;
                 
                 // Real-Time State Sync for Unsaved Drafts
-                Conversation activeConv = ConversationManager.getInstance().getActiveConversation();
+                Conversation activeConv = conversationManager.getActiveConversation();
                 if (activeConv != null) {
                     
                     // Grab all valid file IDs currently sitting in the UI bucket
-                    List<Integer> currentIds = AIContextManager.getInstance().getContextFiles().stream()
+                    List<Integer> currentIds = contextManager.getContextFiles().stream()
                             .map(IItem::getId)
                             .collect(Collectors.toList());
                     
@@ -142,10 +119,10 @@ public class AIAssistantPanel {
     }
 
     public void startNewConversationWithCurrentContext(List<IItem> pendingItems) {
-        Conversation newConversation = ConversationManager.getInstance().startNewConversation();
+        Conversation newConversation = conversationManager.startNewConversation();
 
         List<Integer> contextIds = new ArrayList<>();
-        for (IItem item : AIContextManager.getInstance().getContextFiles()) {
+        for (IItem item : contextManager.getContextFiles()) {
             if (item != null && !contextIds.contains(item.getId())) {
                 contextIds.add(item.getId());
             }
@@ -201,7 +178,8 @@ public class AIAssistantPanel {
         JPanel chatWorkspacePanel = new JPanel(new BorderLayout(5, 5));
         
         JPanel centerPanel = new JPanel(new BorderLayout(5, 5));
-        centerPanel.add(createContextSection(), BorderLayout.NORTH);
+        contextPanel = new ContextPanel(contextManager);
+        centerPanel.add(contextPanel, BorderLayout.NORTH);
 
         String sendText = "Send";
         try { sendText = Messages.getString("AIAssistant.Send"); } catch (Exception e) {}
@@ -487,171 +465,6 @@ public class AIAssistantPanel {
         // Redraw the screen
         refreshChatArea();
         sidebarPanel.getConversationList().setSelectedValue(conv, true);
-    }
-
-    private JPanel createContextSection() {
-        contextListModel = new DefaultListModel<>();
-        contextList = new JList<>(contextListModel);
-        contextList.setSelectionMode(ListSelectionModel.SINGLE_SELECTION);
-        contextList.setVisibleRowCount(CONTEXT_VISIBLE_ITEMS);
-        contextList.setBackground(new Color(255, 255, 240));
-
-        contextList.setCellRenderer((list, value, index, isSelected, cellHasFocus) -> {
-            if (value instanceof ContextSummaryRow) {
-                JLabel label = (JLabel) new DefaultListCellRenderer()
-                        .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-                ContextSummaryRow summary = (ContextSummaryRow) value;
-                label.setText(summary.toString());
-                label.setForeground(Color.DARK_GRAY);
-                label.setFont(label.getFont().deriveFont(Font.ITALIC));
-                label.setToolTipText(summary.toString());
-                return label;
-            }
-
-            if (value instanceof ContextFileEntry) {
-                return createContextEntryCell(list, (ContextFileEntry) value, isSelected);
-            }
-
-            JLabel label = (JLabel) new DefaultListCellRenderer()
-                    .getListCellRendererComponent(list, value, index, isSelected, cellHasFocus);
-            label.setText(String.valueOf(value));
-            return label;
-        });
-
-        contextList.addMouseListener(new MouseAdapter() {
-            @Override
-            public void mouseClicked(MouseEvent e) {
-                if (e.getButton() != MouseEvent.BUTTON1) {
-                    return;
-                }
-
-                int index = contextList.locationToIndex(e.getPoint());
-                if (index < 0 || index >= contextListModel.size()) {
-                    return;
-                }
-
-                Rectangle cellBounds = contextList.getCellBounds(index, index);
-                if (cellBounds == null || !cellBounds.contains(e.getPoint())) {
-                    return;
-                }
-
-                Object value = contextListModel.getElementAt(index);
-                if (!(value instanceof ContextFileEntry)) {
-                    return;
-                }
-
-                if (!isRemoveHotzoneClick(e, cellBounds)) {
-                    return;
-                }
-
-                AIContextManager.getInstance().removeContextFile(((ContextFileEntry) value).getItem());
-            }
-        });
-
-        JScrollPane contextScroll = new JScrollPane(contextList);
-        contextScroll.setPreferredSize(new Dimension(PANEL_WIDTH - 10, 80));
-
-        contextEmptyLabel = new JLabel("No files added to context.");
-        contextEmptyLabel.setForeground(Color.GRAY);
-        contextEmptyLabel.setFont(new Font("SansSerif", Font.ITALIC, 11));
-        contextEmptyLabel.setHorizontalAlignment(SwingConstants.CENTER);
-
-        JPanel listContainer = new JPanel(new BorderLayout());
-        listContainer.add(contextScroll, BorderLayout.CENTER);
-        listContainer.add(contextEmptyLabel, BorderLayout.NORTH);
-
-        clearContextButton = new JButton("Clear");
-        clearContextButton.setMargin(new Insets(0, 5, 0, 5));
-        clearContextButton.setEnabled(false);
-        clearContextButton.addActionListener(e -> AIContextManager.getInstance().clearContext());
-
-        JPanel actionPanel = new JPanel(new BorderLayout());
-        actionPanel.add(clearContextButton, BorderLayout.NORTH);
-
-        contextPanel = new JPanel(new BorderLayout(5, 5));
-        contextBorder = BorderFactory.createTitledBorder("Added Context (0 files)");
-        contextPanel.setBorder(contextBorder);
-
-        contextPanel.add(listContainer, BorderLayout.CENTER);
-        contextPanel.add(actionPanel, BorderLayout.EAST);
-
-        refreshContextUI();
-
-        return contextPanel;
-    }
-
-    /**
-     * Destructive refresh: Wipes the UI list and rebuilds it from the Source of Truth.
-     */
-    private void refreshContextUI() {
-        List<ContextFileEntry> entries = AIContextManager.getInstance().getContextEntriesForUI();
-        List<IItem> validFiles = AIContextManager.getInstance().getContextFiles();
-        int invalidCount = entries.size() - validFiles.size();
-        contextListModel.clear();
-
-        if (entries.isEmpty()) {
-            contextEmptyLabel.setVisible(true);
-            contextList.setVisible(false);
-            clearContextButton.setEnabled(false);
-        } else {
-            contextEmptyLabel.setVisible(false);
-            contextList.setVisible(true);
-            clearContextButton.setEnabled(true);
-
-            int visibleCount = Math.min(CONTEXT_VISIBLE_ITEMS, entries.size());
-            for (int i = 0; i < visibleCount; i++) {
-                contextListModel.addElement(entries.get(i));
-            }
-
-            if (entries.size() > CONTEXT_VISIBLE_ITEMS) {
-                int hiddenCount = entries.size() - CONTEXT_VISIBLE_ITEMS;
-                String summaryText = "+ " + hiddenCount + " more items (" + validFiles.size() + " valid, " + invalidCount + " rejected)";
-                contextListModel.addElement(new ContextSummaryRow(summaryText));
-            }
-        }
-
-        if (invalidCount > 0) {
-            contextBorder.setTitle("Added Context (" + validFiles.size() + " valid, " + invalidCount + " rejected)");
-        } else {
-            contextBorder.setTitle("Added Context (" + validFiles.size() + " valid)");
-        }
-
-        contextPanel.repaint();
-    }
-
-    private JComponent createContextEntryCell(JList<?> list, ContextFileEntry entry, boolean isSelected) {
-        JPanel rowPanel = new JPanel(new BorderLayout(8, 0));
-        rowPanel.setBorder(BorderFactory.createEmptyBorder(2, 8, 2, 8));
-        rowPanel.setOpaque(true);
-        rowPanel.setBackground(isSelected ? list.getSelectionBackground() : list.getBackground());
-
-        JLabel textLabel = new JLabel();
-        textLabel.setOpaque(false);
-        textLabel.setFont(list.getFont());
-        textLabel.setForeground(isSelected ? list.getSelectionForeground() : list.getForeground());
-
-        JLabel removeLabel = new JLabel("X");
-        removeLabel.setOpaque(false);
-        removeLabel.setFont(list.getFont().deriveFont(Font.BOLD));
-        removeLabel.setForeground(new Color(160, 0, 0));
-
-        if (entry.isValidForContext()) {
-            textLabel.setText(entry.getFileName());
-            rowPanel.setToolTipText(entry.getFullPath());
-        } else {
-            String reason = entry.getValidationReason() != null ? entry.getValidationReason() : "Rejected item.";
-            textLabel.setText(entry.getFileName() + " - " + reason);
-            rowPanel.setToolTipText(reason + " Path: " + entry.getFullPath());
-            textLabel.setForeground(isSelected ? list.getSelectionForeground() : new Color(180, 0, 0));
-        }
-
-        rowPanel.add(textLabel, BorderLayout.CENTER);
-        rowPanel.add(removeLabel, BorderLayout.EAST);
-        return rowPanel;
-    }
-
-    private boolean isRemoveHotzoneClick(MouseEvent e, Rectangle cellBounds) {
-        return e.getX() >= cellBounds.x + cellBounds.width - CONTEXT_REMOVE_HOTZONE_PX;
     }
 
     // Quick actions panel
