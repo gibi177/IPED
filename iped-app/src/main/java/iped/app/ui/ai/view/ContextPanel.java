@@ -28,8 +28,8 @@ import iped.app.ui.ai.model.ContextFileEntry;
 import iped.data.IItem;
 
 /**
- * Componente encapsulado responsável por exibir e gerenciar a interface de arquivos
- * adicionados ao contexto da IA. Aplica SRP e reage diretamente ao AIContextManager.
+ * Encapsulated component responsible for displaying and managing the interface
+ * for files added to the AI context. Applies SRP and reacts directly to the AIContextManager.
  */
 public class ContextPanel extends JPanel {
 
@@ -46,7 +46,7 @@ public class ContextPanel extends JPanel {
     private final AIContextManager contextManager;
 
     /**
-     * Classe utilitária interna para renderização da linha de estouro de capacidade.
+     * Internal utility class responsible for rendering the capacity overflow line.
      */
     private static final class ContextSummaryRow {
         private final String text;
@@ -188,12 +188,12 @@ public class ContextPanel extends JPanel {
     }
 
     private void setupContextListener() {
-        // O próprio painel se auto-escuta para redesenhar a lista quando o estado mudar
+        // The panel itself listens to its own state to redraw the list when the state changes
         contextManager.addContextChangeListener(event -> refreshContextUI());
     }
 
     /**
-     * Sincroniza a interface visual de arquivos com o estado real do domínio.
+     * Synchronizes the file UI with the actual domain state.
      */
     public void refreshContextUI() {
         List<ContextFileEntry> entries = contextManager.getContextEntriesForUI();
