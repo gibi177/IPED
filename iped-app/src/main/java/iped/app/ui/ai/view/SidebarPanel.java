@@ -158,7 +158,7 @@ public class SidebarPanel extends JPanel {
     /**
      *  Sincronized method to refresh the conversation list UI based on the current state of ConversationManager.
      */
-    public void refreshList() {
+    public void refreshSidebarList() {
         conversationListModel.clear();
         for (Conversation conv : conversationManager.getConversations()) {
             conversationListModel.addElement(conv);
@@ -178,14 +178,14 @@ public class SidebarPanel extends JPanel {
             JOptionPane.WARNING_MESSAGE);
             
         if (confirm == JOptionPane.YES_OPTION) {
-            // Remove logicamente e fisicamente
+            // Removes logically and physically
             ConversationPersistence.deleteConversation(conv.getId());
             conversationManager.removeConversation(conv);
             
             Conversation active = conversationManager.getActiveConversation();
             boolean isActiveDeleted = (active == null || active.getId().equals(conv.getId()));
             
-            // Reposiciona o ponteiro de conversas caso a conversa ativa tenha sido deletada
+            // Repositions the conversation pointer if the active conversation has been deleted
             if (isActiveDeleted) {
                 List<Conversation> remaining = ConversationManager.getInstance().getConversations();
                 if (!remaining.isEmpty()) {
@@ -195,12 +195,12 @@ public class SidebarPanel extends JPanel {
                 }
             }
             
-            // Notifica o listener externo para atualizações colaterais (Ex: limpar tela)
+            // Notifies the external listener of side updates (e.g., clear screen)
             if (listener != null) {
                 listener.onConversationDeleted(conv, isActiveDeleted);
             }
             
-            refreshList();
+            refreshSidebarList();
         }
     }
 }

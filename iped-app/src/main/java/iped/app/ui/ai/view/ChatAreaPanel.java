@@ -1,11 +1,13 @@
 package iped.app.ui.ai.view;
 
-import java.awt.Dimension;
 import java.util.List;
 import java.util.function.BiConsumer;
+import java.awt.Dimension;
 import java.awt.Color;
 import java.awt.Cursor;
 import java.awt.BorderLayout;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 
 import javax.swing.BorderFactory;
 import javax.swing.JButton;
@@ -19,6 +21,8 @@ import javax.swing.JTextPane;
 import javax.swing.SwingUtilities;
 import javax.swing.text.BadLocationException;
 import javax.swing.text.StyledDocument;
+import javax.swing.text.AttributeSet;
+import javax.swing.text.Element;
 
 import iped.app.ui.ai.model.AIChatMessage;
 
@@ -212,14 +216,14 @@ public class ChatAreaPanel extends JPanel {
         if (chatArea == null) {
             return;
         }
-        chatArea.addMouseListener(new java.awt.event.MouseAdapter() {
+        chatArea.addMouseListener(new MouseAdapter() {
             @Override
-            public void mouseClicked(java.awt.event.MouseEvent e) {
-                if (e.getButton() != java.awt.event.MouseEvent.BUTTON1) {
+            public void mouseClicked(MouseEvent e) {
+                if (e.getButton() != MouseEvent.BUTTON1) {
                     return;
                 }
                 
-                // converts the clicked point to a document offset
+                // Converts the clicked point to a document offset
                 int offset = chatArea.viewToModel2D(e.getPoint());
                 StyledDocument currentDoc = getChatDocument();        
                 if (offset < 0 || currentDoc == null) {
@@ -227,11 +231,11 @@ public class ChatAreaPanel extends JPanel {
                 }
 
 
-                javax.swing.text.Element element = chatDocument.getCharacterElement(offset);
-                javax.swing.text.AttributeSet attributes = element.getAttributes();
+                Element element = chatDocument.getCharacterElement(offset);
+                AttributeSet attributes = element.getAttributes();
                 Object tokenFlag = attributes.getAttribute(AIMarkdownRenderer.TOKEN_ATTRIBUTE);
                 
-                // 1. clicks on tokens with navigation metadata (e.g., hash and chunkId)
+                // Clicks on tokens with navigation metadata (e.g., hash and chunkId)
                 if (Boolean.TRUE.equals(tokenFlag)) {
                     int start = element.getStartOffset();
                     int end = element.getEndOffset();
@@ -248,7 +252,7 @@ public class ChatAreaPanel extends JPanel {
                     return;
                 }
 
-                // 2. clicks on other tokens without navigation metadata will toggle "thinking" state for that token
+                // Clicks on other tokens without navigation metadata will toggle "thinking" state for that token
                 if (markdownRenderer != null && markdownRenderer.toggleThinkingAtOffset(offset)) {
                     if (refreshCallback != null) {
                         refreshCallback.run();
@@ -256,7 +260,5 @@ public class ChatAreaPanel extends JPanel {
                 }
             }
         });
-
     }
-    
 }

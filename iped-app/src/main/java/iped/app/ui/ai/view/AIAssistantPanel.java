@@ -142,14 +142,14 @@ public class AIAssistantPanel {
         newConversation.updateLastModified();
 
         if (pendingItems != null) {
-            AIContextManager.getInstance().addContextFiles(pendingItems);
+            contextManager.addContextFiles(pendingItems);
         }
 
         if (coordinator != null) {
             coordinator.clearHistory();
         }
 
-        refreshSidebarList();
+        sidebarPanel.refreshSidebarList();
         refreshChatArea();
         sidebarPanel.getConversationList().setSelectedValue(newConversation, true);
         showFrame();
@@ -230,7 +230,7 @@ public class AIAssistantPanel {
                         loadConversation(active);
                     } else {
                         clearChatScreenAndMemory();
-                        AIContextManager.getInstance().clearContext();
+                        contextManager.clearContext();
                         refreshChatArea();
                     }
                 }
@@ -252,7 +252,7 @@ public class AIAssistantPanel {
 
         addMessage("System", "AI Assistant ready. Connected to local Backend server.\nRight-click an HTML WhatsApp chat export to add it to the context, then type your question.");
         
-        refreshSidebarList();
+        sidebarPanel.refreshSidebarList();
     }
 
     private void navigateToItem(String hash, String chunkId) {
@@ -334,12 +334,6 @@ public class AIAssistantPanel {
         }
     }
 
-    private void refreshSidebarList() {
-        if (sidebarPanel != null) {
-            sidebarPanel.refreshList();
-        }
-    }
-
     private void startNewChat() {
         // Create a new active conversation in memory first (safeguards the old one)
         ConversationManager.getInstance().startNewConversation();
@@ -348,9 +342,9 @@ public class AIAssistantPanel {
         clearChatScreenAndMemory();
         
         // Clear IPED context
-        AIContextManager.getInstance().clearContext();
+        contextManager.clearContext();
         
-        refreshSidebarList();
+        sidebarPanel.refreshSidebarList();
         refreshChatArea();
         
         addMessage("System", "Started a new conversation session.");
@@ -374,7 +368,7 @@ public class AIAssistantPanel {
         }
         
         // Restore the visual IPED Context UI 
-        AIContextManager.getInstance().clearContext(); // Wipe previous chat's files
+        contextManager.clearContext(); // Wipe previous chat's files
         
         new Thread(() -> {
             List<IItem> restoredItems = new ArrayList<>();
@@ -447,7 +441,7 @@ public class AIAssistantPanel {
                             }
                             
                             // Restore the visual UI
-                            AIContextManager.getInstance().addContextFiles(restoredItems);
+                            contextManager.addContextFiles(restoredItems);
                         }
                     } finally {
                         // Unlock the listener on the EDT
@@ -646,7 +640,7 @@ public class AIAssistantPanel {
             // If the user deleted all chats and types in the blank slate, start a new one
             if (ConversationManager.getInstance().getActiveConversation() == null) {
                 ConversationManager.getInstance().startNewConversation();
-                refreshSidebarList();
+                sidebarPanel.refreshSidebarList();
             }
 
             // Print user message immediately
@@ -673,7 +667,7 @@ public class AIAssistantPanel {
                         if (!assistantDraft.getContent().isEmpty()) {
                             // Registra a resposta final estável no modelo de dados histórico do IPED
                             ConversationManager.getInstance().addMessageToActive(assistantDraft);
-                            refreshSidebarList();
+                            sidebarPanel.refreshSidebarList();
                         }
                         setProcessing(false);
                     });
